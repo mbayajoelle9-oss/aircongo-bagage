@@ -186,6 +186,7 @@ export async function montrerCarte(el, { scans = [], points = [], conserver = fa
   el._map = map;
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
+    referrerPolicy: 'strict-origin-when-cross-origin', // OpenStreetMap exige de savoir quel site demande les tuiles
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
   }).addTo(map);
   // La molette ne fait défiler la carte qu'après un clic dessus (évite de bloquer le défilement de la page).
