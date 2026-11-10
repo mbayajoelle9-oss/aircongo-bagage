@@ -3,17 +3,112 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Air Congo – Traçabilité des bagages</title>
+<title>Connexion – Air Congo · Traçabilité des bagages</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/style.css">
 <script src="/config.js"></script>
 </head>
 <body>
-<header><img src="/logo.png" alt="Logo Air Congo" width="44" height="44"><div><h1>Air Congo – Traçabilité des bagages</h1><small>Démonstration · Aquila Nexus</small></div></header>
-<main class="accueil">
-  <a href="/passager.html"><b>Passager</b><br>Déclarer ses bagages, suivre leur position, payer l'excédent, signaler un problème.<br><span class="petit">Démo : ACG123 / Mbemba · ACV777 / Kabila (VIP) · ACB456 / Tshimanga</span></a>
-  <a href="/agent.html"><b>Agent en station</b><br>Scanner un bagage à chaque étape, peser, encaisser l'excédent.<br><span class="petit">Accès par clé fournie par Aquila Nexus</span></a>
-  <a href="/admin.html"><b>Tableau de bord Air Congo</b><br>Position des bagages, alertes, litiges, recettes d'excédents.<br><span class="petit">Accès par clé fournie par Aquila Nexus</span></a>
-</main>
+<div class="auth">
+  <aside class="auth-marque">
+    <div>
+      <img src="/logo.png" alt="Logo Air Congo">
+      <h1>Traçabilité des bagages</h1>
+      <p>Suivez chaque bagage de l'enregistrement à la remise au passager, supprimez les files d'attente et maîtrisez les excédents.</p>
+      <ul>
+        <li><b>●</b><span>Suivi en temps réel par scan, et par RFID pour les passagers VIP</span></li>
+        <li><b>●</b><span>Enregistrement rapide : le passager prépare ses bagages en ligne</span></li>
+        <li><b>●</b><span>Litiges et excédents gérés au même endroit</span></li>
+      </ul>
+    </div>
+    <div class="signature">Solution développée par Aquila Nexus</div>
+  </aside>
+
+  <main class="auth-contenu">
+    <div class="auth-carte">
+      <h2>Bienvenue</h2>
+      <p class="muted">Connectez-vous pour accéder à votre espace.</p>
+      <div class="onglets" role="tablist">
+        <button type="button" class="on" data-onglet="personnel" role="tab">Personnel Air Congo</button>
+        <button type="button" data-onglet="passager" role="tab">Passager</button>
+      </div>
+      <div id="info" class="info" hidden></div>
+
+      <form id="fPersonnel" autocomplete="on">
+        <label class="champ" for="email">Adresse e-mail</label>
+        <input class="input" id="email" type="email" autocomplete="username" required placeholder="prenom.nom@aircongo.cd">
+        <label class="champ" for="mdp">Mot de passe</label>
+        <div class="mdp">
+          <input class="input" id="mdp" type="password" autocomplete="current-password" required>
+          <button type="button" id="voir">Afficher</button>
+        </div>
+        <div id="err1" class="erreur" hidden></div>
+        <p><button class="btn bloc" id="go1" type="submit">Se connecter</button></p>
+      </form>
+
+      <form id="fPassager" hidden>
+        <p class="muted petit" style="margin-top:16px">Suivez vos bagages avec votre numéro de réservation et votre nom, sans créer de compte.</p>
+        <label class="champ" for="pnr">Numéro de réservation</label>
+        <input class="input" id="pnr" autocapitalize="characters" autocomplete="off" required placeholder="ex. ACG123" maxlength="12">
+        <label class="champ" for="nom">Nom du passager</label>
+        <input class="input" id="nom" autocomplete="family-name" required placeholder="ex. Mbemba">
+        <div id="err2" class="erreur" hidden></div>
+        <p><button class="btn bloc" id="go2" type="submit">Suivre mes bagages</button></p>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+import { api, session } from '/common.js';
+const $ = (id) => document.getElementById(id);
+
+if (session.token) location.replace('/app.html');
+if (new URLSearchParams(location.search).has('expire')) {
+  $('info').hidden = false;
+  $('info').textContent = 'Votre session a expiré. Veuillez vous reconnecter.';
+}
+
+document.querySelectorAll('[data-onglet]').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('[data-onglet]').forEach((x) => x.classList.toggle('on', x === b));
+  const pers = b.dataset.onglet === 'personnel';
+  $('fPersonnel').hidden = !pers;
+  $('fPassager').hidden = pers;
+}));
+$('voir').onclick = () => {
+  const visible = $('mdp').type === 'text';
+  $('mdp').type = visible ? 'password' : 'text';
+  $('voir').textContent = visible ? 'Afficher' : 'Masquer';
+};
+
+$('fPersonnel').onsubmit = async (e) => {
+  e.preventDefault();
+  $('err1').hidden = true;
+  $('go1').disabled = true; $('go1').textContent = 'Connexion…';
+  try {
+    const r = await api('POST', '/api/auth/login', { email: $('email').value, motDePasse: $('mdp').value }, { auth: false });
+    session.set(r.token, r.utilisateur);
+    location.href = '/app.html';
+  } catch (err) {
+    $('err1').textContent = err.message; $('err1').hidden = false;
+    $('go1').disabled = false; $('go1').textContent = 'Se connecter';
+  }
+};
+
+$('fPassager').onsubmit = async (e) => {
+  e.preventDefault();
+  $('err2').hidden = true;
+  const pnr = $('pnr').value.trim().toUpperCase(), nom = $('nom').value.trim();
+  $('go2').disabled = true; $('go2').textContent = 'Recherche…';
+  try {
+    await api('GET', `/api/suivi/${encodeURIComponent(pnr)}?nom=${encodeURIComponent(nom)}`, null, { auth: false });
+    sessionStorage.setItem('ac_pax', JSON.stringify({ pnr, nom }));
+    location.href = '/passager.html';
+  } catch (err) {
+    $('err2').textContent = err.message; $('err2').hidden = false;
+    $('go2').disabled = false; $('go2').textContent = 'Suivre mes bagages';
+  }
+};
+</script>
 </body>
 </html>
