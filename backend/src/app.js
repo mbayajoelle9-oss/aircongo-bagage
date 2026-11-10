@@ -19,13 +19,17 @@ export function creerApp(repo, options) {
     cors({
       origin: origines.length ? origines : false, // aucune origine autorisée si FRONTEND_URL est vide
       methods: ['GET', 'POST', 'PATCH'],
-      allowedHeaders: ['Content-Type', 'X-Api-Key'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
       maxAge: 600,
     }),
   );
   app.use(express.json({ limit: '100kb' }));
 
-  // Anti-devinette sur le suivi passager (réservation + nom) et sur les clés
+  // Anti-devinette : connexion du personnel et suivi passager (réservation + nom)
+  app.use(
+    '/api/auth/login',
+    rateLimit({ windowMs: 15 * 60_000, limit: 15, skipSuccessfulRequests: true, standardHeaders: true, legacyHeaders: false, message: { erreur: 'Trop de tentatives, réessayez dans quelques minutes' } }),
+  );
   app.use('/api/suivi', rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false }));
   app.use('/api/agent', rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));
   app.use('/api/admin', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));

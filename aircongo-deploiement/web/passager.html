@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suivi de mes bagages – Air Congo</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/config.js"></script>
+</head>
+<body>
+<header><img src="/logo.png" alt="Logo Air Congo" width="44" height="44"><div><h1>Suivi de mes bagages</h1><small>Air Congo</small></div></header>
+<main>
+  <div class="carte" id="connexion">
+    <h2>Retrouver ma réservation</h2>
+    <div class="ligne">
+      <div><label for="pnr">Numéro de réservation</label><input id="pnr" placeholder="ex. ACG123" autocapitalize="characters"></div>
+      <div><label for="nom">Mon nom</label><input id="nom" placeholder="ex. Mbemba"></div>
+    </div>
+    <p><button id="ok">Voir mes bagages</button></p>
+  </div>
+  <div class="msg" id="msg" hidden></div>
+  <div id="vue" hidden></div>
+</main>
+<script type="module">
+import { esc, api, message, usd, heure, frise } from '/app.js';
+const $ = (id) => document.getElementById(id);
+let session = null, timer = null;
+
+async function charger() {
+  const { pnr, nom } = session;
+  const r = await api('GET', `/api/suivi/${encodeURIComponent(pnr)}?nom=${encodeURIComponent(nom)}`);
+  afficher(r);
+}
+
+function afficher(r) {
+  const ex = r.excedent;
+  const bagages = r.bagages.map((b) => `
+    <div class="carte">
+      <div class="ligne" style="align-items:center">
+        <div><span class="code">${esc(b.code)}</span> ${b.niveau === 'VIP' ? '<span class="badge vip">VIP · suivi RFID</span>' : ''}<br>
+        <span class="petit">${b.poidsKg} kg ${b.poidsReel ? '(pesé)' : '(déclaré)'}</span></div>
+        <div style="text-align:right"><b>${esc(b.libelle)}</b><br><span class="petit">${b.dernierScan ? esc(b.dernierScan.station) + ' · ' + heure(b.dernierScan.ts) : 'Pas encore déposé'}</span></div>
+      </div>
+      ${frise(b.statut)}
+      <details><summary class="petit">Historique et signalement</summary>
+        <table>${b.scans.map((s) => `<tr><td>${heure(s.ts)}</td><td>${esc(s.station)}</td><td>${esc(s.etape)}</td></tr>`).join('') || '<tr><td class="petit">Aucun mouvement</td></tr>'}</table>
+        <label>Signaler un problème</label>
+        <div class="ligne">
+          <select data-type="${esc(b.code)}"><option value="RETARDE">Retardé</option><option value="PERDU">Perdu</option><option value="ENDOMMAGE">Endommagé</option><option value="CONTENU_MANQUANT">Contenu manquant</option></select>
+          <input data-desc="${esc(b.code)}" placeholder="Décrivez le problème">
+          <button class="secondaire" data-litige="${esc(b.code)}">Envoyer</button>
+        </div>
+      </details>
+    </div>`).join('');
+
+  const excedent = ex.excesKg > 0
+    ? `<div class="carte"><h2>Excédent de bagages</h2>
+        <p>Total ${ex.totalKg} kg pour ${ex.franchiseKg} kg autorisés : <b>${ex.excesKg} kg en trop</b>.</p>
+        ${ex.kgRestants > 0
+          ? `<p>À régler : <b>${usd(ex.montantEnLigneUsd)}</b> en ligne <span class="petit">(au lieu de ${usd(ex.montantComptoirUsd)} au comptoir)</span></p>
+             <button class="vert" id="payer">Payer en ligne (simulation)</button>`
+          : `<p class="msg ok">Excédent réglé (${usd(ex.payeUsd)}). Merci !</p>`}
+      </div>` : '';
+
+  $('vue').hidden = false;
+  $('vue').innerHTML = `
+    <div class="carte"><h2>${esc(r.nom)} <span class="badge">${esc(r.classe)}</span></h2>
+      <div class="petit">Vol ${esc(r.vol.numero)} · ${esc(r.vol.depart)} → ${esc(r.vol.arrivee)} · départ ${esc(r.vol.heureDepart)} · réservation ${esc(r.pnr)}</div></div>
+    ${bagages || '<div class="carte">Aucun bagage déclaré.</div>'}
+    ${excedent}
+    <div class="carte"><h2>Ajouter un bagage</h2>
+      <div class="ligne"><div><label for="poids">Poids estimé (kg)</label><input id="poids" type="number" inputmode="decimal" min="1" max="80" step="0.5"></div></div>
+      <p><button id="ajouter">Ajouter et générer mon code</button></p>
+      <p class="petit">Présentez le code de chaque bagage au comptoir dédié : pas de file d'enregistrement.</p></div>`;
+
+  $('ajouter').onclick = async () => {
+    try {
+      const res = await api('POST', `/api/suivi/${session.pnr}/bagages`, { nom: session.nom, poidsKg: $('poids').value });
+      message($('msg'), 'ok', `Bagage ajouté. Votre code : ${res.code}`);
+      afficher(res.reservation);
+    } catch (e) { message($('msg'), 'err', e.message); }
+  };
+  const payer = $('payer');
+  if (payer) payer.onclick = async () => {
+    try {
+      await api('POST', `/api/suivi/${session.pnr}/payer`, { nom: session.nom });
+      message($('msg'), 'ok', 'Paiement enregistré (simulation).');
+      charger();
+    } catch (e) { message($('msg'), 'err', e.message); }
+  };
+  document.querySelectorAll('[data-litige]').forEach((btn) => btn.onclick = async () => {
+    const code = btn.dataset.litige;
+    try {
+      const l = await api('POST', `/api/suivi/${session.pnr}/litiges`, {
+        nom: session.nom, code,
+        type: document.querySelector(`[data-type="${code}"]`).value,
+        description: document.querySelector(`[data-desc="${code}"]`).value,
+      });
+      message($('msg'), 'ok', `Signalement enregistré sous le numéro ${l.numero}.`);
+    } catch (e) { message($('msg'), 'err', e.message); }
+  });
+}
+
+$('ok').onclick = async () => {
+  session = { pnr: $('pnr').value.trim(), nom: $('nom').value.trim() };
+  message($('msg'), 'ok', '');
+  try {
+    await charger();
+    clearInterval(timer);
+    timer = setInterval(() => charger().catch(() => {}), 8000);
+  } catch (e) { $('vue').hidden = true; message($('msg'), 'err', e.message); }
+};
+</script>
+</body>
+</html>

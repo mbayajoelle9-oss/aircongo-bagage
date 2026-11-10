@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tableau de bord – Air Congo</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/config.js"></script>
+</head>
+<body>
+<header><img src="/logo.png" alt="Logo Air Congo" width="44" height="44"><div><h1>Tableau de bord bagages</h1><small>Air Congo · actualisation automatique</small></div></header>
+<main>
+  <div class="ligne" style="margin-bottom:12px">
+    <input id="cle" type="password" placeholder="Clé d'accès" style="flex:2">
+    <button id="reset" class="secondaire">Réinitialiser la démo</button>
+  </div>
+  <div class="msg" id="msg" hidden></div>
+  <div class="cartes" id="stats"></div>
+  <div class="carte"><h2>Alertes</h2><div id="alertes"></div></div>
+  <div class="carte"><h2>Bagages</h2><div style="overflow-x:auto"><table id="bagages"></table></div></div>
+  <div class="carte"><h2>Litiges</h2><div style="overflow-x:auto"><table id="litiges"></table></div></div>
+</main>
+<script type="module">
+import { esc, api, message, usd, heure } from '/app.js';
+const $ = (id) => document.getElementById(id);
+const cle = $('cle');
+cle.value = sessionStorage.getItem('cleAdmin') || (window.CLES && window.CLES.admin) || '';
+
+const STATUTS = { OUVERT: 'Ouvert', EN_COURS: 'En cours', RESOLU: 'Résolu' };
+
+async function maj() {
+  sessionStorage.setItem('cleAdmin', cle.value);
+  try {
+    const [s, a, b, l] = await Promise.all([
+      api('GET', '/api/admin/stats', null, cle.value),
+      api('GET', '/api/admin/alertes', null, cle.value),
+      api('GET', '/api/admin/bagages', null, cle.value),
+      api('GET', '/api/admin/litiges', null, cle.value),
+    ]);
+    message($('msg'), 'ok', '');
+    $('stats').innerHTML = [
+      ['Bagages suivis', s.totalBagages, ''],
+      ['Dont VIP (RFID)', s.vip, ''],
+      ['Alertes', s.alertes, s.alertes ? 'alerte' : ''],
+      ['Litiges ouverts', s.litigesOuverts, s.litigesOuverts ? 'alerte' : ''],
+      ['Recettes excédents', usd(s.recettesExcedentUsd), ''],
+    ].map(([t, v, c]) => `<div class="stat ${c}"><b>${v}</b><span>${t}</span></div>`).join('');
+
+    $('alertes').innerHTML = a.length
+      ? `<table>${a.map((x) => `<tr><td class="code" style="font-size:15px">${esc(x.code)}</td><td>${esc(x.passager)}</td><td>${esc(x.dernierStatut)} à ${esc(x.station)}</td><td><b>${x.minutesSansMouvement} min</b> sans mouvement</td></tr>`).join('')}</table>`
+      : '<span class="petit">Aucune alerte.</span>';
+
+    $('bagages').innerHTML = '<tr><th>Code</th><th>Passager</th><th>Vol</th><th>Poids</th><th>Statut</th><th>Dernier scan</th><th>Suivi</th></tr>' +
+      b.map((x) => `<tr><td class="code" style="font-size:15px">${esc(x.code)}</td><td>${esc(x.passager)}</td><td>${esc(x.vol)}</td><td>${x.poidsKg} kg</td>
+        <td>${esc(x.libelle)}</td><td>${x.dernierScan ? esc(x.dernierScan.station) + ' · ' + heure(x.dernierScan.ts) : '—'}</td>
+        <td>${x.niveau === 'VIP' ? '<span class="badge vip">RFID</span>' : '<span class="badge">Scan</span>'}</td></tr>`).join('');
+
+    $('litiges').innerHTML = l.length
+      ? '<tr><th>N°</th><th>Bagage</th><th>Type</th><th>Description</th><th>Statut</th></tr>' +
+        l.map((x) => `<tr><td>${esc(x.numero)}</td><td>${esc(x.code)}</td><td>${esc(x.type)}</td><td>${esc(x.description)}</td>
+          <td><select data-lit="${esc(x.numero)}">${Object.entries(STATUTS).map(([k, v]) => `<option value="${k}" ${k === x.statut ? 'selected' : ''}>${v}</option>`).join('')}</select></td></tr>`).join('')
+      : '<tr><td class="petit">Aucun litige.</td></tr>';
+    document.querySelectorAll('[data-lit]').forEach((sel) => sel.onchange = async () => {
+      try { await api('PATCH', `/api/admin/litiges/${sel.dataset.lit}`, { statut: sel.value }, cle.value); maj(); }
+      catch (e) { message($('msg'), 'err', e.message); }
+    });
+  } catch (e) { message($('msg'), 'err', e.message); }
+}
+
+$('reset').onclick = async () => {
+  try { await api('POST', '/api/admin/demo/reset', {}, cle.value); maj(); } catch (e) { message($('msg'), 'err', e.message); }
+};
+cle.onchange = maj;
+maj();
+setInterval(() => { if (!document.hidden && !document.activeElement?.matches('select')) maj(); }, 5000);
+</script>
+</body>
+</html>

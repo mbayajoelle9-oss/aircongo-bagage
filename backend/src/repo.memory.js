@@ -36,7 +36,8 @@ export class MemoryRepo {
   async count(nom, filtre = {}) {
     return (await this.find(nom, filtre)).length;
   }
-  async reset() {
-    this.d = {};
+  async reset(collections) {
+    if (!collections) this.d = {};
+    else for (const c of collections) this.d[c] = [];
   }
 }

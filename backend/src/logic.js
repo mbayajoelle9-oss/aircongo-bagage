@@ -284,7 +284,7 @@ export async function litiges(repo) {
 
 // ---- Données de démonstration (fictives) ----
 export async function chargerDemo(repo) {
-  await repo.reset();
+  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements']); // les comptes utilisateurs sont conservés
   const vol1 = await repo.insert('vols', { numero: 'DEMO-101', depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30' });
   const vol2 = await repo.insert('vols', { numero: 'DEMO-205', depart: 'FIH', arrivee: 'GOM', heureDepart: '11:15' });
   await repo.insert('reservations', { pnr: 'ACG123', nom: 'Mbemba Joseph', classe: 'ECO', volId: vol1.id, telephone: '+243 000 000 001' });

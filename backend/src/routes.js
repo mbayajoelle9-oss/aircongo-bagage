@@ -19,17 +19,20 @@ import {
   litiges,
   chargerDemo,
 } from './logic.js';
+import { connexion, authentifier, vueUtilisateur, creerUtilisateur, listerUtilisateurs, modifierUtilisateur } from './utilisateurs.js';
 import { CONFIG } from './config.js';
 
-export function construireRoutes(repo, { agentKey, adminKey, demoResetAutorise = false }) {
-  const exiger = (headers, roles) => {
-    const k = headers['x-api-key'];
-    const ok = (roles.includes('agent') && agentKey && k === agentKey) || (roles.includes('admin') && adminKey && k === adminKey);
-    if (!ok) throw new HttpError(401, 'Clé d’accès invalide');
-  };
+export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false }) {
+  const exiger = (headers, roles) => authentifier(repo, jwtSecret, headers, roles);
   const r = (method, path, handler) => ({ method, path, handler });
+  const PERSONNEL = ['AGENT', 'ADMIN'];
+  const ADMIN = ['ADMIN'];
 
   return [
+    // ----- Connexion du personnel -----
+    r('POST', '/api/auth/login', async ({ body }) => connexion(repo, jwtSecret, body)),
+    r('GET', '/api/auth/me', async ({ headers }) => vueUtilisateur(await exiger(headers, PERSONNEL))),
+
     // ----- Passager (sans compte : réservation + nom) -----
     r('GET', '/api/suivi/:pnr', async ({ params, query }) => {
       const res = await trouverReservation(repo, params.pnr);
@@ -57,7 +60,7 @@ export function construireRoutes(repo, { agentKey, adminKey, demoResetAutorise =
 
     // ----- Agent en station -----
     r('GET', '/api/agent/bagages/:code', async ({ params, headers }) => {
-      exiger(headers, ['agent', 'admin']);
+      await exiger(headers, PERSONNEL);
       const b = await trouverBagage(repo, params.code);
       const res = await repo.findOne('reservations', { id: b.reservationId });
       return {
@@ -69,25 +72,38 @@ export function construireRoutes(repo, { agentKey, adminKey, demoResetAutorise =
       };
     }),
     r('POST', '/api/agent/scans', async ({ body, headers }) => {
-      exiger(headers, ['agent', 'admin']);
-      return enregistrerScan(repo, body);
+      const u = await exiger(headers, PERSONNEL);
+      return enregistrerScan(repo, {
+        ...body,
+        agent: u.nom, // l'agent est toujours celui qui est connecté
+        station: u.role === 'AGENT' ? u.station : body.station, // un agent ne scanne que dans sa station
+      });
     }),
     r('POST', '/api/agent/payer/:pnr', async ({ params, headers }) => {
-      exiger(headers, ['agent', 'admin']);
+      await exiger(headers, PERSONNEL);
       return payerExcedent(repo, params.pnr, 'COMPTOIR');
     }),
 
-    // ----- Tableau de bord Air Congo -----
-    r('GET', '/api/admin/stats', async ({ headers }) => (exiger(headers, ['admin']), stats(repo))),
-    r('GET', '/api/admin/bagages', async ({ headers }) => (exiger(headers, ['admin']), listeBagages(repo))),
-    r('GET', '/api/admin/alertes', async ({ headers }) => (exiger(headers, ['admin']), alertes(repo))),
-    r('GET', '/api/admin/litiges', async ({ headers }) => (exiger(headers, ['admin']), litiges(repo))),
+    // ----- Tableau de bord Air Congo (administrateur) -----
+    r('GET', '/api/admin/stats', async ({ headers }) => (await exiger(headers, ADMIN), stats(repo))),
+    r('GET', '/api/admin/bagages', async ({ headers }) => (await exiger(headers, ADMIN), listeBagages(repo))),
+    r('GET', '/api/admin/alertes', async ({ headers }) => (await exiger(headers, ADMIN), alertes(repo))),
+    r('GET', '/api/admin/litiges', async ({ headers }) => (await exiger(headers, ADMIN), litiges(repo))),
     r('PATCH', '/api/admin/litiges/:numero', async ({ params, body, headers }) => {
-      exiger(headers, ['admin']);
+      await exiger(headers, ADMIN);
       return changerStatutLitige(repo, params.numero, body.statut);
     }),
+    r('GET', '/api/admin/utilisateurs', async ({ headers }) => (await exiger(headers, ADMIN), listerUtilisateurs(repo))),
+    r('POST', '/api/admin/utilisateurs', async ({ body, headers }) => {
+      await exiger(headers, ADMIN);
+      return creerUtilisateur(repo, body);
+    }),
+    r('PATCH', '/api/admin/utilisateurs/:id', async ({ params, body, headers }) => {
+      const moi = await exiger(headers, ADMIN);
+      return modifierUtilisateur(repo, moi, params.id, body);
+    }),
     r('POST', '/api/admin/demo/reset', async ({ headers }) => {
-      exiger(headers, ['admin']);
+      await exiger(headers, ADMIN);
       if (!demoResetAutorise) throw new HttpError(403, 'Réinitialisation désactivée (SEED_DEMO=true pour l’activer)');
       await chargerDemo(repo);
       return { ok: true };

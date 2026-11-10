@@ -33,6 +33,20 @@ const schemas = {
     { id: idChamp(), numero: { type: String, unique: true }, bagageId: String, code: String, type: String, description: String, statut: String, creeLe: String },
     opts,
   ),
+  utilisateurs: new Schema(
+    {
+      id: idChamp(),
+      email: { type: String, required: true, unique: true },
+      nom: String,
+      role: String,
+      station: String,
+      actif: Boolean,
+      hash: String,
+      creeLe: String,
+      derniereConnexion: String,
+    },
+    opts,
+  ),
   paiements: new Schema(
     { id: idChamp(), reservationId: { type: String, index: true }, kg: Number, montantUsd: Number, canal: String, ts: String },
     opts,
@@ -71,8 +85,9 @@ export class MongoRepo {
   async count(nom, filtre = {}) {
     return this.m[nom].countDocuments(filtre);
   }
-  async reset() {
-    await Promise.all(Object.values(this.m).map((model) => model.deleteMany({})));
+  async reset(collections) {
+    const noms = collections ?? Object.keys(this.m);
+    await Promise.all(noms.map((nom) => this.m[nom].deleteMany({})));
   }
   async creerIndex() {
     await Promise.all(Object.values(this.m).map((model) => model.init()));
