@@ -26,7 +26,7 @@ const schemas = {
     opts,
   ),
   scans: new Schema(
-    { id: idChamp(), bagageId: { type: String, index: true }, code: String, etape: String, station: String, agent: String, source: String, saut: Boolean, ts: String },
+    { id: idChamp(), bagageId: { type: String, index: true }, code: String, etape: String, station: String, agent: String, source: String, saut: Boolean, ts: String, pointId: String, pointNom: String, lat: Number, lon: Number },
     opts,
   ),
   litiges: new Schema(
@@ -45,6 +45,10 @@ const schemas = {
       creeLe: String,
       derniereConnexion: String,
     },
+    opts,
+  ),
+  points: new Schema(
+    { id: idChamp(), code: { type: String, unique: true }, nom: String, station: String, etape: String, lat: Number, lon: Number, actif: Boolean, rfid: Boolean, positionDemo: Boolean },
     opts,
   ),
   notifications: new Schema(

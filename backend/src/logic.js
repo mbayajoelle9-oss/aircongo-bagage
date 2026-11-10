@@ -1,5 +1,5 @@
 // Logique métier. Indépendante d'Express et de MongoDB : elle ne parle qu'au « dépôt » (repo).
-import { CONFIG, ETAPES, LIBELLES, STATIONS } from './config.js';
+import { CONFIG, ETAPES, LIBELLES, STATIONS, POINTS_PAR_DEFAUT } from './config.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -143,7 +143,8 @@ const MESSAGES = {
 // notification dans le portail) est enregistré ; l'envoi réel via un fournisseur SMS est prévu en phase 2.
 async function alerterPassager(repo, reservation, bagage, scan) {
   const st = STATIONS[scan.station];
-  const lieu = st ? `${st.ville} (${scan.station})` : scan.station;
+  const ville = st ? `${st.ville} (${scan.station})` : scan.station;
+  const lieu = scan.pointNom ? `« ${scan.pointNom} », ${ville}` : ville;
   return repo.insert('notifications', {
     reservationId: reservation.id,
     bagageId: bagage.id,
@@ -158,16 +159,22 @@ async function alerterPassager(repo, reservation, bagage, scan) {
   });
 }
 
-export async function enregistrerScan(repo, { code, etape, station, agent, poidsKg, source, ts }) {
+export async function enregistrerScan(repo, { code, etape, station, agent, poidsKg, source, ts, pointId }) {
   const bagage = await trouverBagage(repo, code);
+  const point = pointId ? await trouverPoint(repo, pointId) : null;
+  if (point && !point.actif) throw new HttpError(409, 'Ce point de scan est désactivé');
+  if (point) { etape = point.etape; station = point.station; } // le point de scan décide de l'étape et de la station
   const e = String(etape ?? '').toUpperCase();
   const idx = ETAPES.indexOf(e);
   if (idx < 0) throw new HttpError(400, `Étape invalide. Valeurs : ${ETAPES.join(', ')}`);
   if (!station || String(station).length > 10) throw new HttpError(400, 'Station requise');
 
-  const { statut } = await statutBagage(repo, bagage);
+  const { statut, dernierScan } = await statutBagage(repo, bagage);
   const dernierIdx = ETAPES.indexOf(statut); // -1 si PRE_ENREGISTRE
-  if (idx <= dernierIdx) {
+  // Plusieurs points peuvent partager la même étape (ex. comptoir puis tri) : on refuse seulement un retour
+  // en arrière ou un second scan au même point.
+  const memePoint = idx === dernierIdx && (dernierScan?.pointId ?? null) === (point?.id ?? null);
+  if (idx < dernierIdx || memePoint) {
     throw new HttpError(409, `Déjà scanné à l'étape « ${LIBELLES[statut]} » ou plus avancé`);
   }
   const saut = idx > dernierIdx + 1;
@@ -184,8 +191,12 @@ export async function enregistrerScan(repo, { code, etape, station, agent, poids
     code: bagage.code,
     etape: e,
     station: String(station).toUpperCase(),
+    pointId: point?.id ?? null,
+    pointNom: point?.nom ?? null,
+    lat: point?.lat ?? null,
+    lon: point?.lon ?? null,
     agent: String(agent || 'agent').slice(0, 60),
-    source: source === 'RFID' ? 'RFID' : 'SCAN',
+    source: source === 'RFID' || (point?.rfid && bagage.niveau === 'VIP') ? 'RFID' : 'SCAN',
     saut,
     ts: ts || new Date().toISOString(),
   });
@@ -240,6 +251,72 @@ export async function changerStatutLitige(repo, numero, statut) {
   if (!l) throw new HttpError(404, 'Litige introuvable');
   if (!['OUVERT', 'EN_COURS', 'RESOLU'].includes(statut)) throw new HttpError(400, 'Statut invalide');
   return repo.update('litiges', l.id, { statut });
+}
+
+// ---- Points de scan (chaque point a ses coordonnées GPS) ----
+export async function trouverPoint(repo, id) {
+  const p = await repo.findOne('points', { id: String(id ?? '') });
+  if (!p) throw new HttpError(404, 'Point de scan introuvable');
+  return p;
+}
+
+export async function peuplerPoints(repo) {
+  if ((await repo.count('points')) > 0) return;
+  for (const p of POINTS_PAR_DEFAUT) await repo.insert('points', { rfid: false, ...p, actif: true, positionDemo: true });
+}
+
+export async function listerPoints(repo, { seulementActifs = false } = {}) {
+  const l = await repo.find('points');
+  return l.filter((p) => !seulementActifs || p.actif).sort((a, b) => a.station.localeCompare(b.station) || ETAPES.indexOf(a.etape) - ETAPES.indexOf(b.etape) || a.nom.localeCompare(b.nom));
+}
+
+function lireCoordonnees(lat, lon) {
+  const la = Number(lat), lo = Number(lon);
+  if (!Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) {
+    throw new HttpError(400, 'Coordonnées GPS invalides (latitude entre −90 et 90, longitude entre −180 et 180)');
+  }
+  return { lat: Math.round(la * 1e6) / 1e6, lon: Math.round(lo * 1e6) / 1e6 };
+}
+
+export async function creerPoint(repo, { nom, station, etape, lat, lon, rfid }) {
+  const n = String(nom ?? '').trim();
+  if (n.length < 2 || n.length > 60) throw new HttpError(400, 'Nom du point requis (2 à 60 caractères)');
+  const st = String(station ?? '').toUpperCase();
+  if (!STATIONS[st]) throw new HttpError(400, `Station inconnue. Stations : ${Object.keys(STATIONS).join(', ')}`);
+  const e = String(etape ?? '').toUpperCase();
+  if (!ETAPES.includes(e)) throw new HttpError(400, `Étape invalide. Valeurs : ${ETAPES.join(', ')}`);
+  const c = lireCoordonnees(lat, lon);
+  let code, i = (await repo.count('points')) + 1;
+  do { code = `${st}-P${String(i++).padStart(2, '0')}`; } while (await repo.findOne('points', { code }));
+  return repo.insert('points', { code, nom: n, station: st, etape: e, ...c, rfid: Boolean(rfid), actif: true, positionDemo: false });
+}
+
+export async function modifierPoint(repo, id, { nom, lat, lon, actif, etape, rfid }) {
+  const p = await trouverPoint(repo, id);
+  const maj = {};
+  if (nom !== undefined) {
+    const n = String(nom).trim();
+    if (n.length < 2 || n.length > 60) throw new HttpError(400, 'Nom du point requis (2 à 60 caractères)');
+    maj.nom = n;
+  }
+  if (lat !== undefined || lon !== undefined) Object.assign(maj, lireCoordonnees(lat ?? p.lat, lon ?? p.lon), { positionDemo: false });
+  if (actif !== undefined) maj.actif = Boolean(actif);
+  if (rfid !== undefined) maj.rfid = Boolean(rfid);
+  if (etape !== undefined) {
+    const e = String(etape).toUpperCase();
+    if (!ETAPES.includes(e)) throw new HttpError(400, `Étape invalide. Valeurs : ${ETAPES.join(', ')}`);
+    maj.etape = e;
+  }
+  return repo.update('points', p.id, maj);
+}
+
+// Carte en direct : chaque point avec les bagages dont le dernier passage a eu lieu à ce point.
+export async function carteEnDirect(repo) {
+  const [points, liste] = await Promise.all([listerPoints(repo), contexte(repo)]);
+  return points.map((p) => {
+    const ici = liste.filter((b) => b.dernierScan?.pointId === p.id);
+    return { ...p, bagages: ici.length, codes: ici.slice(0, 8).map((b) => b.code) };
+  });
 }
 
 // ---- Vues d'ensemble (une seule lecture de chaque collection) ----
@@ -318,6 +395,7 @@ export async function litiges(repo) {
 
 // ---- Données de démonstration (fictives) ----
 export async function chargerDemo(repo) {
+  await peuplerPoints(repo);
   await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements', 'notifications']); // les comptes utilisateurs sont conservés
   const vol1 = await repo.insert('vols', { numero: 'DEMO-101', depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30' });
   const vol2 = await repo.insert('vols', { numero: 'DEMO-205', depart: 'FIH', arrivee: 'GOM', heureDepart: '11:15' });
@@ -332,11 +410,15 @@ export async function chargerDemo(repo) {
   await creerBagage(repo, 'ACB456', { poidsKg: 20 });
 
   const il = (min) => new Date(Date.now() - min * 60000).toISOString();
-  await enregistrerScan(repo, { code: m1.code, etape: 'ENREGISTRE', station: 'FIH', agent: 'Agent A', poidsKg: 18.4, ts: il(55) });
-  await enregistrerScan(repo, { code: m2.code, etape: 'ENREGISTRE', station: 'FIH', agent: 'Agent A', poidsKg: 12.1, ts: il(54) });
-  await enregistrerScan(repo, { code: m1.code, etape: 'CHARGE', station: 'FIH', agent: 'Agent B', ts: il(40) });
+  const pt = async (code) => (await repo.findOne('points', { code })).id;
+  const [ENR, TRI, CHG] = [await pt('FIH-ENR'), await pt('FIH-TRI'), await pt('FIH-CHG')];
+  await enregistrerScan(repo, { code: m1.code, pointId: ENR, agent: 'Agent A', poidsKg: 18.4, ts: il(55) });
+  await enregistrerScan(repo, { code: m2.code, pointId: ENR, agent: 'Agent A', poidsKg: 12.1, ts: il(54) });
+  await enregistrerScan(repo, { code: m1.code, pointId: TRI, agent: 'Agent C', ts: il(47) });
+  await enregistrerScan(repo, { code: m1.code, pointId: CHG, agent: 'Agent B', ts: il(40) });
   for (const b of [v1, v2]) {
-    await enregistrerScan(repo, { code: b.code, etape: 'ENREGISTRE', station: 'FIH', agent: 'Agent A', source: 'RFID', ts: il(20) });
-    await enregistrerScan(repo, { code: b.code, etape: 'CHARGE', station: 'FIH', agent: 'Portique RFID', source: 'RFID', ts: il(12) });
+    await enregistrerScan(repo, { code: b.code, pointId: ENR, agent: 'Agent A', ts: il(22) });
+    await enregistrerScan(repo, { code: b.code, pointId: TRI, agent: 'Portique RFID', ts: il(16) });
+    await enregistrerScan(repo, { code: b.code, pointId: CHG, agent: 'Portique RFID', ts: il(12) });
   }
 }

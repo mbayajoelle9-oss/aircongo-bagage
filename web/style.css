@@ -230,3 +230,26 @@ textarea.input { resize: vertical; }
 .etiquette img { width: 170px; height: 170px; image-rendering: pixelated; }
 .etiquette .code { font-size: 26px; font-weight: 700; letter-spacing: 2px; color: var(--marine); }
 @media print { body > *:not(dialog) { display: none !important; } dialog.modal { position: static; box-shadow: none; } dialog.modal .actions, dialog.modal form { display: none !important; } }
+
+/* Carte OpenStreetMap */
+.osm { width: 100%; border-radius: 12px; border: 1px solid var(--bord); overflow: hidden; margin: 12px 0 4px; background: var(--gris-clair); z-index: 0; }
+.osm .leaflet-container { font: inherit; }
+.pt-etape { width: 30px; height: 30px; border-radius: 50%; background: var(--vert); color: #fff; font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.pt-etape.courant { background: var(--marine); box-shadow: 0 0 0 0 rgba(31,157,85,.7), 0 2px 6px rgba(0,0,0,.35); animation: pulse 1.8s infinite; }
+.pt-compte { width: 30px; height: 30px; border-radius: 50%; background: var(--bleu); color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+@keyframes pulse { 70% { box-shadow: 0 0 0 14px rgba(31,157,85,0), 0 2px 6px rgba(0,0,0,.35); } 100% { box-shadow: 0 0 0 0 rgba(31,157,85,0), 0 2px 6px rgba(0,0,0,.35); } }
+.chips-carte { background: #fff; border-radius: 8px; box-shadow: 0 1px 5px rgba(0,0,0,.35); display: flex; overflow: hidden; }
+.chips-carte button { border: 0; background: #fff; padding: 7px 11px; font: inherit; font-size: 12px; font-weight: 700; color: var(--marine); cursor: pointer; border-right: 1px solid var(--bord); }
+.chips-carte button:last-child { border-right: 0; } .chips-carte button:hover { background: var(--bleu-pale); }
+.carte-repli { padding: 14px; font-size: 14px; } .carte-repli ol { margin: 8px 0 0; padding-left: 20px; }
+.legende-carte { font-size: 13px; color: var(--gris); margin: 6px 0 0; }
+.liste-points { list-style: none; margin: 0; padding: 0; }
+.liste-points li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--bord); font-size: 14px; }
+.liste-points li:first-child { border-top: 0; }
+.liste-points .nom { font-weight: 600; } .liste-points small { color: var(--gris); display: block; }
+.points-liste { display: grid; gap: 8px; margin-top: 6px; }
+.points-liste button { text-align: left; border: 1px solid var(--bord); background: #fff; border-radius: 10px; padding: 11px 14px; font: inherit; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.points-liste button small { color: var(--gris); }
+.points-liste button.on { border-color: var(--bleu); background: var(--bleu-pale); box-shadow: 0 0 0 1px var(--bleu); }
+.carte-grille { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .carte-grille { grid-template-columns: 1fr; } }

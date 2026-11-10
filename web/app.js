@@ -1,4 +1,4 @@
-import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, qrImage, carte, chargerStations, STATUTS } from '/common.js';
+import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, qrImage, zoneCarte, montrerCarte, chargerStations, STATUTS } from '/common.js';
 
 const moi = session.user;
 let STATIONS_INFO = {};
@@ -14,6 +14,7 @@ const STATUTS_LITIGE = { OUVERT: 'Ouvert', EN_COURS: 'En cours', RESOLU: 'Résol
 
 const PAGES = [
   { id: 'dashboard', titre: 'Tableau de bord', ico: 'grille', admin: true },
+  { id: 'carte', titre: 'Carte & points', ico: 'epingle', admin: true },
   { id: 'bagages', titre: 'Bagages', ico: 'bagage', admin: true },
   { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true },
   { id: 'utilisateurs', titre: 'Utilisateurs', ico: 'equipe', admin: true },
@@ -43,7 +44,7 @@ async function naviguer() {
   menu(page.id);
   vue.innerHTML = '<div class="chargement">Chargement…</div>';
   try {
-    await ({ dashboard: vueDashboard, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
+    await ({ dashboard: vueDashboard, carte: vueCarte, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
   } catch (e) {
     vue.innerHTML = `<div class="carte"><div class="erreur" style="margin:0">${esc(e.message)}</div></div>`;
   }
@@ -89,7 +90,7 @@ async function vueDashboard() {
 
     const evenements = b.flatMap((x) => x.scans.map((sc) => ({ ...sc, passager: x.passager }))).sort((m, n) => n.ts.localeCompare(m.ts)).slice(0, 8);
     $('fil').innerHTML = evenements.length
-      ? evenements.map((e) => `<li><span class="t">${heure(e.ts)}</span><span><b class="mono">${esc(e.code)}</b> · ${esc(e.passager)}<br><span class="muted petit">${esc(STATUTS[e.etape]?.label ?? e.etape)} à ${esc(e.station)} · ${esc(e.agent)}${e.source === 'RFID' ? ' · <b>RFID</b>' : ''}</span></span></li>`).join('')
+      ? evenements.map((e) => `<li><span class="t">${heure(e.ts)}</span><span><b class="mono">${esc(e.code)}</b> · ${esc(e.passager)}<br><span class="muted petit">${esc(STATUTS[e.etape]?.label ?? e.etape)} · ${esc(e.pointNom ?? e.station)} (${esc(e.station)}) · ${esc(e.agent)}${e.source === 'RFID' ? ' · <b>RFID</b>' : ''}</span></span></li>`).join('')
       : '<li class="muted">Aucun mouvement pour le moment.</li>';
     $('maj').textContent = 'Mis à jour à ' + heure(new Date().toISOString());
   };
@@ -129,11 +130,13 @@ function detailBagage(b) {
     <p class="muted" style="margin:2px 0 0">${esc(b.passager)} · réservation ${esc(b.pnr)} · vol ${esc(b.vol)}</p>
     <p style="margin:10px 0 0">${pill(b.statut)} <span class="muted petit">${b.poidsKg} kg ${b.poidsReel ? '(pesé)' : '(déclaré)'} · suivi ${b.niveau === 'VIP' ? 'RFID' : 'par scan'}</span></p>
     ${frise(b.statut)}
-    ${carte(b.scans, b.trajetVol ?? {}, STATIONS_INFO)}
+    ${zoneCarte(300)}
+    <p class="legende-carte">Points de scan franchis (vert, numérotés) ; les points bleus sont les autres points de contrôle.</p>
     <h3 style="margin-top:18px">Historique</h3>
-    ${b.scans.length ? `<ul class="fil">${b.scans.map((s) => `<li><span class="t">${heure(s.ts)}</span><span>${esc(STATUTS[s.etape]?.label ?? s.etape)} · ${esc(s.station)}<br><span class="muted petit">${esc(s.agent)}${s.source === 'RFID' ? ' · RFID' : ''}${s.saut ? ' · étape sautée' : ''}</span></span></li>`).join('')}</ul>` : '<p class="muted">Aucun mouvement.</p>'}
+    ${b.scans.length ? `<ul class="fil">${b.scans.map((s) => `<li><span class="t">${heure(s.ts)}</span><span>${esc(s.pointNom ?? STATUTS[s.etape]?.label ?? s.etape)}<br><span class="muted petit">${esc(STATUTS[s.etape]?.label ?? s.etape)} · ${esc(s.station)} · ${esc(s.agent)}${s.source === 'RFID' ? ' · RFID' : ''}${s.saut ? ' · étape sautée' : ''}</span></span></li>`).join('')}</ul>` : '<p class="muted">Aucun mouvement.</p>'}
     <div class="actions"><button class="btn sec" value="x">Fermer</button></div>`);
   d.querySelector('button').onclick = () => d.close();
+  api('GET', '/api/admin/points').catch(() => []).then((points) => montrerCarte(d.querySelector('.osm'), { scans: b.scans, points }));
 }
 
 // ============================================================
@@ -214,22 +217,104 @@ async function vueUtilisateurs() {
 }
 
 // ============================================================
+// Carte & points de scan (administrateur)
+// ============================================================
+const NOMS_ETAPES = { ENREGISTRE: 'Enregistrement', CHARGE: 'Chargement', TRANSIT: 'Transit', ARRIVE: 'Arrivée', LIVRE: 'Remise' };
+
+async function vueCarte() {
+  vue.innerHTML =
+    entete('Carte & points de scan', 'Chaque point où un bagage est scanné, sur la carte OpenStreetMap', `<button class="btn" id="nouveauPoint">${icone('plus')} Nouveau point</button>`) +
+    `<div class="carte-grille"><div class="carte"><div class="outils"><input class="input" id="rech" placeholder="Code bagage (AC123456) pour voir son trajet" aria-label="Code bagage" style="max-width:none;flex:1;width:auto;min-width:0"><button class="btn sec" id="tracer">Tracer</button><button class="btn sec" id="effacer" hidden>Effacer</button></div>
+      <div id="msgCarte" class="muted petit"></div>${zoneCarte(520)}<p class="legende-carte">Les pastilles bleues numérotées indiquent le nombre de bagages dont le dernier passage a eu lieu à ce point. Cliquez sur un point pour le détail.</p></div>
+    <div class="carte"><h2>Points de scan</h2><ul class="liste-points" id="lstPoints"></ul></div></div>`;
+
+  let points = [], trace = [], premiere = true;
+  const el = vue.querySelector('.osm');
+  const dessiner = async () => { await montrerCarte(el, { scans: trace, points, conserver: !premiere }); premiere = false; };
+  const charger = async () => {
+    points = await api('GET', '/api/admin/carte');
+    $('lstPoints').innerHTML = points.map((p) => `<li><span><span class="nom">${esc(p.nom)}</span><small>${esc(p.station)} · ${esc(NOMS_ETAPES[p.etape] ?? p.etape)}${p.rfid ? ' · RFID' : ''} · ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</small>${p.positionDemo ? '<small style="color:#9b6a00">Position de démonstration, à confirmer sur place</small>' : ''}</span>
+      <span style="white-space:nowrap">${p.actif ? '' : '<span class="pill gris">Désactivé</span> '}${p.bagages ? `<span class="pill bleu">${p.bagages}</span> ` : ''}<button class="btn sec mini" data-edit="${esc(p.id)}">Modifier</button></span></li>`).join('');
+    document.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => dialoguePoint(points.find((p) => p.id === b.dataset.edit), async () => { premiere = true; await charger(); await dessiner(); })));
+  };
+  $('nouveauPoint').onclick = () => dialoguePoint(null, async () => { premiere = true; await charger(); await dessiner(); });
+  $('tracer').onclick = async () => {
+    const code = $('rech').value.trim().toUpperCase();
+    if (!code) return;
+    try {
+      trace = (await api('GET', `/api/agent/bagages/${encodeURIComponent(code)}`)).bagage.scans;
+      $('msgCarte').textContent = trace.length ? `Trajet de ${code} : ${trace.length} passage(s).` : `${code} n’a pas encore été scanné.`;
+      $('effacer').hidden = false; premiere = true; await dessiner();
+    } catch (e) { $('msgCarte').textContent = e.message; }
+  };
+  $('rech').onkeydown = (e) => { if (e.key === 'Enter') $('tracer').click(); };
+  $('effacer').onclick = async () => { trace = []; $('rech').value = ''; $('msgCarte').textContent = ''; $('effacer').hidden = true; premiere = true; await dessiner(); };
+  await charger(); await dessiner();
+  const t = setInterval(async () => { if (document.hidden || document.querySelector('dialog[open]')) return; try { await charger(); await dessiner(); } catch { /* réessai au prochain tour */ } }, 15000);
+  surDepart(() => { clearInterval(t); if (el._map) el._map.remove(); });
+}
+
+function lireGps(texte) {
+  const m = String(texte).replace(/[−–]/g, '-').match(/^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  return m ? { lat: Number(m[1]), lon: Number(m[2]) } : null;
+}
+
+function dialoguePoint(p, apres) {
+  const d = ouvrirDialogue(`<h2>${p ? 'Modifier le point' : 'Nouveau point de scan'}</h2>
+    <p class="muted petit" style="margin:2px 0 0">Placez-vous au point de scan et utilisez « Ma position », ou collez les coordonnées copiées depuis OpenStreetMap ou Google Maps.</p>
+    <form id="fP">
+      <label class="champ">Nom du point<input class="input" name="nom" required minlength="2" maxlength="60" value="${esc(p?.nom ?? '')}" placeholder="Ex. Tri bagages – tapis 2"></label>
+      <div class="rang"><label class="champ">Station<select class="input" name="station" ${p ? 'disabled' : ''}>${STATIONS.map((c) => `<option value="${c}" ${p?.station === c ? 'selected' : ''}>${c} · ${esc(STATIONS_INFO[c].nom)}</option>`).join('')}</select></label>
+      <label class="champ">Étape enregistrée<select class="input" name="etape">${Object.entries(NOMS_ETAPES).map(([k, v]) => `<option value="${k}" ${p?.etape === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+      <label class="champ">Coordonnées GPS (latitude, longitude)<input class="input mono" name="gps" required value="${p ? `${p.lat}, ${p.lon}` : ''}" placeholder="-4.38580, 15.44460"></label>
+      <button type="button" class="btn sec mini" id="geo" style="margin-top:8px">${icone('epingle')} Utiliser ma position</button>
+      <label class="champ" style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" name="rfid" ${p?.rfid ? 'checked' : ''}> Portique RFID (bagages VIP lus automatiquement)</label>
+      ${p ? `<label class="champ" style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Point actif</label>` : ''}
+      <div id="eP" class="erreur" hidden></div>
+      <div class="actions"><button type="button" class="btn sec" id="ann">Annuler</button><button class="btn" type="submit">Enregistrer</button></div>
+    </form>`);
+  const f = d.querySelector('#fP');
+  d.querySelector('#ann').onclick = () => d.close();
+  d.querySelector('#geo').onclick = () => {
+    if (!navigator.geolocation) return toast('Géolocalisation indisponible sur cet appareil.', 'warn');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { f.gps.value = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`; toast(`Position relevée (précision ± ${Math.round(pos.coords.accuracy)} m)`); },
+      () => toast('Position refusée ou introuvable.', 'err'),
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  };
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const er = d.querySelector('#eP'); er.hidden = true;
+    const g = lireGps(f.gps.value);
+    if (!g) { er.textContent = 'Coordonnées illisibles. Format attendu : -4.38580, 15.44460 (point comme séparateur décimal).'; er.hidden = false; return; }
+    const corps = { nom: f.nom.value, etape: f.etape.value, lat: g.lat, lon: g.lon, rfid: f.rfid.checked };
+    try {
+      if (p) await api('PATCH', `/api/admin/points/${encodeURIComponent(p.id)}`, { ...corps, actif: f.actif.checked });
+      else await api('POST', '/api/admin/points', { ...corps, station: f.station.value });
+      d.close(); toast(p ? 'Point modifié' : 'Point créé'); await apres?.();
+    } catch (e) { er.textContent = e.message; er.hidden = false; }
+  };
+}
+
+// ============================================================
 // Scanner (agent en station)
 // ============================================================
 const historique = [];
 async function vueScanner() {
-  let etape = 'ENREGISTRE';
   let station = EST_ADMIN ? STATIONS[0] : moi.station;
-  const ETAPES = [['ENREGISTRE', 'Enregistrement'], ['CHARGE', 'Chargement'], ['TRANSIT', 'Transit'], ['ARRIVE', 'Arrivée'], ['LIVRE', 'Remise']];
+  const tousPoints = await api('GET', '/api/agent/points');
+  let point = null;
+  let bagageCourant = null;
 
   vue.innerHTML =
     entete('Scanner un bagage', EST_ADMIN ? 'Mode administrateur : vous choisissez la station.' : `Station ${moi.station} · ${STATIONS_INFO[moi.station]?.nom ?? ''} · ${moi.nom}`, `<button class="btn sec" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
     `<div class="grille2"><div class="carte"><h2>Scan</h2>
       ${EST_ADMIN ? `<label class="champ">Station<select class="input" id="st">${STATIONS.map((c) => `<option value="${c}">${c} · ${esc(STATIONS_INFO[c].nom)}</option>`).join('')}</select></label>` : ''}
-      <label class="champ">Étape du bagage</label><div class="segments" id="seg"></div>
+      <label class="champ">Point de scan (où vous vous trouvez)</label><div class="points-liste" id="lstPts"></div>
       <label class="champ" for="code">Code du bagage</label>
       <input class="input grand" id="code" placeholder="AC123456" autocomplete="off" autocapitalize="characters" autofocus>
-      <div id="blocPoids"><label class="champ" for="poids">Poids sur la balance (kg)</label><input class="input" id="poids" type="number" inputmode="decimal" step="0.1" min="0.1" max="80"></div>
+      <div id="blocPoids" hidden><label class="champ" for="poids">Poids sur la balance (kg)</label><input class="input" id="poids" type="number" inputmode="decimal" step="0.1" min="0.1" max="80"></div>
       <div class="rang" style="margin-top:16px"><button class="btn" id="valider">Valider le scan</button><button class="btn sec" id="cam" type="button">${icone('camera')} Scanner avec la caméra</button></div>
       <div class="camera" id="zoneCam" hidden><video id="video" playsinline muted></video></div>
       <div id="erreurScan" class="erreur" hidden></div>
@@ -240,23 +325,29 @@ async function vueScanner() {
   $('etiq').onclick = () => nouvelleEtiquette();
   const afficherHist = () => {
     $('hist').innerHTML = historique.length
-      ? historique.slice(0, 8).map((h) => `<li><span class="t">${heure(h.ts)}</span><span><b class="mono">${esc(h.code)}</b> · ${esc(h.libelle)}<br><span class="muted petit">${esc(h.station)}</span></span></li>`).join('')
+      ? historique.slice(0, 8).map((h) => `<li><span class="t">${heure(h.ts)}</span><span><b class="mono">${esc(h.code)}</b> · ${esc(h.libelle)}<br><span class="muted petit">${esc(h.lieu)}</span></span></li>`).join('')
       : '<li class="muted">Aucun scan dans cette session.</li>';
   };
   afficherHist();
 
-  const majSeg = () => {
-    $('seg').innerHTML = ETAPES.map(([k, l]) => `<button type="button" class="${k === etape ? 'on' : ''}" data-e="${k}">${l}</button>`).join('');
-    $('seg').querySelectorAll('button').forEach((b) => (b.onclick = () => { etape = b.dataset.e; majSeg(); }));
-    $('blocPoids').hidden = etape !== 'ENREGISTRE';
+  const majPoids = () => { $('blocPoids').hidden = point?.etape !== 'ENREGISTRE'; };
+  const majPoints = () => {
+    const l = tousPoints.filter((p) => p.station === station);
+    if (!l.some((p) => p.id === point?.id)) point = l.find((p) => p.id === sessionStorage.getItem('ac_point')) ?? l[0] ?? null;
+    $('lstPts').innerHTML = l.length
+      ? l.map((p) => `<button type="button" class="${p.id === point?.id ? 'on' : ''}" data-p="${esc(p.id)}"><span><b>${esc(p.nom)}</b><br><small>${esc(NOMS_ETAPES[p.etape] ?? p.etape)}${p.rfid ? ' · RFID' : ''}</small></span><span>${p.id === point?.id ? '✓' : ''}</span></button>`).join('')
+      : '<p class="muted petit" style="margin:0">Aucun point de scan pour cette station. Demandez à l’administrateur d’en ajouter.</p>';
+    $('lstPts').querySelectorAll('button').forEach((b) => (b.onclick = () => { point = l.find((p) => p.id === b.dataset.p); sessionStorage.setItem('ac_point', point.id); majPoints(); }));
+    majPoids();
   };
-  majSeg();
-  if (EST_ADMIN) $('st').onchange = () => (station = $('st').value);
+  majPoints();
+  if (EST_ADMIN) $('st').onchange = () => { station = $('st').value; majPoints(); };
 
   async function chercher(code) {
     if (!code) return;
     try {
       const d = await api('GET', `/api/agent/bagages/${encodeURIComponent(code)}`);
+      bagageCourant = d.bagage;
       const ex = d.excedent;
       $('fiche').innerHTML = `<h2>Bagage <span class="mono">${esc(d.bagage.code)}</span></h2>
         <div class="fiche-bagage"><div class="haut"><div><b>${esc(d.passager)}</b><br><span class="muted petit">Réservation ${esc(d.pnr)} · ${esc(d.classe)} · ${d.bagage.poidsKg} kg ${d.bagage.poidsReel ? '(pesé)' : '(déclaré)'}</span></div>
@@ -270,6 +361,7 @@ async function vueScanner() {
         catch (err) { toast(err.message, 'err'); }
       };
     } catch (err) {
+      bagageCourant = null;
       $('fiche').innerHTML = `<h2>Bagage</h2><div class="erreur" style="margin:0">${esc(err.message)}</div>`;
     }
   }
@@ -281,14 +373,15 @@ async function vueScanner() {
     const code = lireCode();
     const er = $('erreurScan');
     er.hidden = true;
+    if (!point) { er.textContent = 'Aucun point de scan sélectionné.'; er.hidden = false; return; }
     if (!code) { er.textContent = 'Saisissez ou scannez un code.'; er.hidden = false; return; }
     const poids = $('poids').value;
-    if (etape === 'ENREGISTRE' && !poids) { er.textContent = 'Saisissez le poids lu sur la balance.'; er.hidden = false; return; }
+    if (point.etape === 'ENREGISTRE' && !poids && !bagageCourant?.poidsReel) { er.textContent = 'Saisissez le poids lu sur la balance.'; er.hidden = false; return; }
     $('valider').disabled = true;
     try {
-      const r = await api('POST', '/api/agent/scans', { code, etape, station, poidsKg: etape === 'ENREGISTRE' ? poids : undefined });
+      const r = await api('POST', '/api/agent/scans', { code, pointId: point.id, poidsKg: point.etape === 'ENREGISTRE' && poids ? poids : undefined });
       toast(`${code} : ${r.bagage.libelle}`, r.avertissement ? 'warn' : 'ok');
-      historique.unshift({ ts: r.scan.ts, code, libelle: r.bagage.libelle, station: r.scan.station });
+      historique.unshift({ ts: r.scan.ts, code, libelle: r.bagage.libelle, lieu: `${point.nom} · ${r.scan.station}` });
       afficherHist();
       await chercher(code);
       $('code').value = ''; $('poids').value = ''; $('code').focus();
@@ -296,7 +389,7 @@ async function vueScanner() {
     $('valider').disabled = false;
   }
   $('valider').onclick = valider;
-  $('code').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('code').onchange(); if (etape !== 'ENREGISTRE') valider(); else $('poids').focus(); } };
+  $('code').onkeydown = async (e) => { if (e.key === 'Enter') { e.preventDefault(); await chercher(lireCode()); if (point?.etape === 'ENREGISTRE' && !bagageCourant?.poidsReel) $('poids').focus(); else valider(); } };
   $('poids').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); valider(); } };
 
   // ---- Caméra ----

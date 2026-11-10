@@ -106,19 +106,27 @@ test('scénario complet : pré-enregistrement -> livraison + paiement', async ()
   assert.equal(paye.json.paiement.montantUsd, 24);
   assert.equal((await call('POST', '/api/suivi/ACB456/payer', { body: { nom: 'Tshimanga' } })).status, 409);
 
-  assert.equal((await call('POST', '/api/agent/scans', { body: { code, etape: 'ENREGISTRE' } })).status, 401);
-  const s1 = await call('POST', '/api/agent/scans', { token: AG, body: { code, etape: 'ENREGISTRE', station: 'GOM', agent: 'Usurpateur', poidsKg: 15.2 } });
+  const pts = (await call('GET', '/api/agent/points', { token: AG })).json;
+  const P = (c) => pts.find((p) => p.code === c).id;
+  const scan = (token, body) => call('POST', '/api/agent/scans', { token, body: { code, ...body } });
+  assert.equal((await scan(undefined, { pointId: P('FIH-ENR') })).status, 401);
+  assert.equal((await scan(AG, { etape: 'ENREGISTRE' })).status, 400); // un agent doit choisir un point
+  assert.equal((await scan(AG, { pointId: P('GOM-SOU') })).status, 403); // point d'une autre station
+  const s1 = await scan(AG, { pointId: P('FIH-ENR'), etape: 'LIVRE', station: 'GOM', agent: 'Usurpateur', poidsKg: 15.2 });
   assert.equal(s1.status, 200);
-  assert.equal(s1.json.scan.station, 'FIH'); // la station de l'agent l'emporte
+  assert.equal(s1.json.scan.station, 'FIH'); // le point décide de la station
+  assert.equal(s1.json.scan.etape, 'ENREGISTRE'); // et de l'étape
   assert.equal(s1.json.scan.agent, 'Agent FIH'); // l'identité vient du compte
+  assert.equal(typeof s1.json.scan.lat, 'number');
   assert.equal(s1.json.bagage.poidsReel, true);
-  assert.equal((await call('POST', '/api/agent/scans', { token: AG, body: { code, etape: 'ENREGISTRE' } })).status, 409);
-  const s2 = await call('POST', '/api/agent/scans', { token: AD, body: { code, etape: 'ARRIVE', station: 'GOM' } });
+  assert.equal((await scan(AG, { pointId: P('FIH-ENR') })).status, 409); // même point deux fois
+  assert.equal((await scan(AG, { pointId: P('FIH-TRI') })).status, 200); // autre point, même étape
+  const s2 = await scan(AD, { etape: 'ARRIVE', station: 'GOM' });
   assert.ok(s2.json.avertissement);
   assert.equal(s2.json.scan.station, 'GOM'); // l'admin peut choisir
-  const s3 = await call('POST', '/api/agent/scans', { token: AG, body: { code, etape: 'LIVRE' } });
+  const s3 = await scan(AG, { pointId: P('FIH-LIV') });
   assert.equal(s3.json.bagage.statut, 'LIVRE');
-  assert.equal((await call('POST', '/api/agent/scans', { token: AG, body: { code, etape: 'XYZ' } })).status, 400);
+  assert.equal((await scan(AD, { etape: 'XYZ', station: 'FIH' })).status, 400);
   assert.equal((await call('GET', '/api/admin/stats', { token: AD })).json.recettesExcedentUsd, 24);
 });
 
@@ -177,11 +185,37 @@ test('alertes passager à chaque scan + stations connues', async () => {
   const { call, AD } = await demarrer();
   const v = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json;
   assert.equal(v.canalAlerte, 'WHATSAPP');
-  assert.equal(v.notifications.length, 4); // 2 bagages x (enregistré, chargé)
+  assert.equal(v.notifications.length, 6); // 2 bagages x (comptoir, tri, chargement)
   assert.match(v.notifications[0].message, /^Air Congo : votre bagage AC\d{6} .* \(FIH\)/);
   assert.ok(!v.telephone.includes('000 000 002'));
   const cfg = (await call('GET', '/api/config')).json;
   assert.ok(cfg.stations.FIH && cfg.stations.FBM);
   const r = await call('POST', '/api/admin/utilisateurs', { token: AD, body: { nom: 'X Y', email: 'x@y.cd', motDePasse: 'motdepasse-123', role: 'AGENT', station: 'ZZZ' } });
   assert.equal(r.status, 400);
+});
+
+test('points de scan GPS : gestion par l\'admin, trajet du bagage, carte en direct', async () => {
+  const { call, repo, AD, AG } = await demarrer();
+  const liste = (await call('GET', '/api/admin/points', { token: AD })).json;
+  assert.ok(liste.length >= 10 && liste.every((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)));
+  assert.equal((await call('GET', '/api/admin/points', { token: AG })).status, 403);
+  const cree = await call('POST', '/api/admin/points', { token: AD, body: { nom: 'Contrôle douane', station: 'fih', etape: 'enregistre', lat: -4.3868, lon: 15.4437 } });
+  assert.equal(cree.status, 200);
+  assert.equal(cree.json.positionDemo, false);
+  assert.equal((await call('POST', '/api/admin/points', { token: AD, body: { nom: 'X', station: 'FIH', etape: 'CHARGE', lat: 200, lon: 0 } })).status, 400);
+  assert.equal((await call('POST', '/api/admin/points', { token: AD, body: { nom: 'Point', station: 'ZZZ', etape: 'CHARGE', lat: 1, lon: 1 } })).status, 400);
+  const maj = await call('PATCH', `/api/admin/points/${cree.json.id}`, { token: AD, body: { lat: -4.39, lon: 15.45, actif: false } });
+  assert.equal(maj.json.lat, -4.39);
+  assert.equal((await call('POST', '/api/agent/scans', { token: AD, body: { code: 'AC000000', pointId: cree.json.id } })).status, 404);
+  const bag = (await repo.find('bagages')).find((b) => b.niveau === 'VIP');
+  const inactif = await call('POST', '/api/agent/scans', { token: AD, body: { code: bag.code, pointId: cree.json.id } });
+  assert.equal(inactif.status, 409); // point désactivé
+  // le trajet du bagage VIP : 3 points avec coordonnées, source RFID aux portiques
+  const vue = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json;
+  const sc = vue.bagages[0].scans;
+  assert.deepEqual(sc.map((x) => x.pointNom), ['Comptoir d’enregistrement', 'Tri bagages et sûreté', 'Chargement avion']);
+  assert.deepEqual(sc.map((x) => x.source), ['SCAN', 'RFID', 'RFID']);
+  const carte = (await call('GET', '/api/admin/carte', { token: AD })).json;
+  assert.equal(carte.find((p) => p.code === 'FIH-CHG').bagages, 3); // 2 VIP + 1 standard
+  assert.equal(carte.reduce((n, p) => n + p.bagages, 0), 4); // le 5e bagage n'est pas encore scanné
 });

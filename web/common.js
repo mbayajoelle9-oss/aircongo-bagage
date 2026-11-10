@@ -70,6 +70,7 @@ const ICONES = {
   sortie: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
   camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  epingle: '<path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
   avion: '<path d="M2 12l8-2 5-7 2 1-3 7 6 1 2-2 1 1-2 4-5 1-1 6-2-1 0-5-7 0z"/>',
 };
 export const icone = (nom) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
@@ -123,7 +124,7 @@ export function ouvrirDialogue(html) {
   return d;
 }
 
-// ---- Stations et cartographie du trajet d'un bagage ----
+// ---- Stations ----
 let stationsCache;
 export async function chargerStations() {
   if (!stationsCache) {
@@ -133,50 +134,112 @@ export async function chargerStations() {
   return stationsCache;
 }
 
-// Schéma du réseau : chaque point est une station ; le trait plein est le chemin déjà parcouru par le bagage,
-// le pointillé la suite du vol. `scans` = historique du bagage, `vol` = { depart, arrivee }.
-export function carte(scans, vol, stations) {
-  const L = 560, H = 330, M = 34;
-  const lonMin = 13, lonMax = 31, latMax = 3, latMin = -13;
-  const px = (s) => [M + ((s.lon - lonMin) / (lonMax - lonMin)) * (L - 2 * M), M + ((latMax - s.lat) / (latMax - latMin)) * (H - 2 * M)];
-  const pos = (code) => (stations[code] ? px(stations[code]) : null);
+// ---- Carte OpenStreetMap (Leaflet) : chaque point de scan a ses coordonnées GPS ----
+let promesseLeaflet;
+function chargerLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  return (promesseLeaflet ??= new Promise((resolve) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    // 1) copie locale /vendor/leaflet.js si elle existe, 2) sinon CDN.
+    const essayer = (urls) => {
+      const s = document.createElement('script');
+      s.src = urls[0];
+      s.onload = () => resolve(window.L ?? null);
+      s.onerror = () => (urls.length > 1 ? essayer(urls.slice(1)) : resolve(null));
+      document.head.appendChild(s);
+    };
+    essayer(['/vendor/leaflet.js', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js']);
+  }));
+}
 
-  const parcours = [];
-  for (const s of scans) if (stations[s.station] && parcours.at(-1) !== s.station) parcours.push(s.station);
-  const actuelle = parcours.at(-1) ?? null;
-  const prevu = [vol.depart, vol.arrivee].filter((c, i, a) => stations[c] && a.indexOf(c) === i);
-  const ligne = (codes, attrs) => {
-    const pts = codes.map(pos).filter(Boolean);
-    return pts.length > 1 ? `<polyline points="${pts.map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ')}" fill="none" ${attrs}/>` : '';
+export const zoneCarte = (hauteur = 300) => `<div class="osm" style="height:${hauteur}px"></div>`;
+
+const lienOSM = (lat, lon) => `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}`;
+const aCoord = (s) => Number.isFinite(s.lat) && Number.isFinite(s.lon);
+
+/**
+ * Dessine sur une vraie carte OpenStreetMap :
+ *  - le trajet du bagage (`scans` : chaque passage avec lat/lon, numéroté, trait vert, dernier point animé),
+ *  - éventuellement tous les points de scan (`points`, avec le nombre de bagages présents si `bagages` est renseigné).
+ * `conserver` garde le zoom et le centre actuels (rafraîchissement automatique).
+ */
+export async function montrerCarte(el, { scans = [], points = [], conserver = false } = {}) {
+  if (!el) return null;
+  const ancienne = conserver && el._map ? { c: el._map.getCenter(), z: el._map.getZoom() } : null;
+  if (el._map) { el._map.remove(); el._map = null; }
+  const chemin = [...scans].sort((m, n) => m.ts.localeCompare(n.ts)).filter(aCoord);
+
+  const L = await chargerLeaflet();
+  if (!L) {
+    // Repli sans carte : liste des passages avec lien OpenStreetMap.
+    el.style.height = 'auto';
+    el.innerHTML = `<div class="carte-repli"><b>Carte indisponible</b> (connexion aux serveurs de cartes impossible).<ol>${
+      chemin.map((p) => `<li>${esc(p.pointNom ?? p.station)} — ${esc(STATUTS[p.etape]?.label ?? p.etape)}, ${heure(p.ts)} · <a href="${lienOSM(p.lat, p.lon)}" target="_blank" rel="noopener">voir sur OpenStreetMap</a></li>`).join('') || '<li>Aucun passage enregistré.</li>'
+    }</ol></div>`;
+    return null;
+  }
+  el.innerHTML = '';
+  const map = L.map(el, { scrollWheelZoom: false, zoomControl: true }).setView([-4.3858, 15.4446], 14);
+  el._map = map;
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+  }).addTo(map);
+  // La molette ne fait défiler la carte qu'après un clic dessus (évite de bloquer le défilement de la page).
+  map.on('click', () => map.scrollWheelZoom.enable());
+  map.on('mouseout', () => map.scrollWheelZoom.disable());
+
+  const tous = [];
+  const parStation = {};
+  const noter = (station, lat, lon) => { tous.push([lat, lon]); (parStation[station] ??= []).push([lat, lon]); };
+
+  for (const p of points.filter(aCoord)) {
+    noter(p.station, p.lat, p.lon);
+    const nb = p.bagages ?? 0;
+    const infos = `<b>${esc(p.nom)}</b><br>${esc(p.station)} · ${esc(STATUTS[p.etape]?.label ?? p.etape)}${p.rfid ? ' · RFID' : ''}${p.positionDemo ? '<br><i>position à confirmer sur place</i>' : ''}${nb ? `<br>${nb} bagage(s) : ${esc((p.codes ?? []).join(', '))}` : ''}`;
+    if (p.bagages !== undefined && nb > 0) {
+      L.marker([p.lat, p.lon], { icon: L.divIcon({ className: '', html: `<div class="pt-compte">${nb}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] }) }).bindPopup(infos).addTo(map);
+    } else {
+      L.circleMarker([p.lat, p.lon], { radius: 7, color: '#fff', weight: 2, fillColor: p.actif === false ? '#c5ced9' : '#1c8fd0', fillOpacity: 0.9 }).bindPopup(infos).bindTooltip(esc(p.nom)).addTo(map);
+    }
+  }
+
+  if (chemin.length > 1) L.polyline(chemin.map((p) => [p.lat, p.lon]), { color: '#1f9d55', weight: 5, opacity: 0.9 }).addTo(map);
+  chemin.forEach((p, i) => {
+    noter(p.station, p.lat, p.lon);
+    const dernier = i === chemin.length - 1;
+    L.marker([p.lat, p.lon], { zIndexOffset: 1000 + i, icon: L.divIcon({ className: '', html: `<div class="pt-etape ${dernier ? 'courant' : ''}">${i + 1}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
+      .bindPopup(`<b>${i + 1}. ${esc(p.pointNom ?? p.station)}</b><br>${esc(STATUTS[p.etape]?.label ?? p.etape)} · ${esc(p.station)}<br>${dateHeure(p.ts)} · ${esc(p.agent ?? '')}${p.source === 'RFID' ? ' · RFID' : ''}`)
+      .addTo(map);
+  });
+
+  const cadrer = (coords) => {
+    if (!coords.length) return;
+    if (coords.length === 1) map.setView(coords[0], 18);
+    else map.fitBounds(coords, { padding: [36, 36], maxZoom: 18 });
   };
-  // Suite du vol : de la dernière station connue jusqu'à la destination.
-  const suite = actuelle && actuelle !== vol.arrivee ? [actuelle, vol.arrivee] : [];
+  if (ancienne) map.setView(ancienne.c, ancienne.z);
+  else cadrer(chemin.length ? chemin.map((p) => [p.lat, p.lon]) : tous);
 
-  const noeuds = Object.entries(stations).map(([code, st]) => {
-    const [x, y] = px(st);
-    const vu = parcours.includes(code), ici = code === actuelle, dest = code === vol.arrivee && !vu;
-    const rayon = ici ? 9 : vu ? 6 : 4.5;
-    const fill = ici ? '#1f9d55' : vu ? '#1f9d55' : dest ? '#f6c21c' : '#c5ced9';
-    const ordre = vu ? parcours.indexOf(code) + 1 : '';
-    return `<g><title>${esc(st.nom)}</title>
-      ${ici ? `<circle cx="${x}" cy="${y}" r="16" fill="#1f9d55" opacity=".18"><animate attributeName="r" values="10;20;10" dur="2.2s" repeatCount="indefinite"/></circle>` : ''}
-      <circle cx="${x}" cy="${y}" r="${rayon}" fill="${fill}" stroke="#fff" stroke-width="2"/>
-      ${ordre ? `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">${ordre}</text>` : ''}
-      <text x="${x}" y="${y - rayon - 6}" text-anchor="middle" font-size="12" font-weight="${vu || dest ? 700 : 500}" fill="${vu || dest ? '#0b2a4a' : '#7a8696'}">${esc(code)}</text>
-      <text x="${x}" y="${y + rayon + 14}" text-anchor="middle" font-size="10" fill="#7a8696">${esc(st.ville)}</text></g>`;
-  }).join('');
-
-  const legende = parcours.length
-    ? `Trajet : ${parcours.map((c) => esc(stations[c].ville)).join(' → ')}${actuelle && actuelle !== vol.arrivee ? ' → <span class="muted">' + esc(stations[vol.arrivee]?.ville ?? vol.arrivee) + ' (prévu)</span>' : ''}`
-    : 'Aucun passage enregistré : le bagage apparaîtra ici dès son premier scan.';
-  return `<figure class="carte-trajet"><svg viewBox="0 0 ${L} ${H}" role="img" aria-label="Cartographie du trajet du bagage">
-    <rect x="1" y="1" width="${L - 2}" height="${H - 2}" rx="14" fill="#f4f7fb" stroke="#dfe6ee"/>
-    ${[1, 2, 3, 4].map((i) => `<line x1="${(L / 5) * i}" y1="8" x2="${(L / 5) * i}" y2="${H - 8}" stroke="#e8edf3"/>`).join('')}
-    ${[1, 2, 3].map((i) => `<line y1="${(H / 4) * i}" x1="8" y2="${(H / 4) * i}" x2="${L - 8}" stroke="#e8edf3"/>`).join('')}
-    ${ligne(prevu, 'stroke="#c5ced9" stroke-width="2" stroke-dasharray="6 6"')}
-    ${ligne(suite, 'stroke="#1c8fd0" stroke-width="2.5" stroke-dasharray="3 6" stroke-linecap="round"')}
-    ${ligne(parcours, 'stroke="#1f9d55" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"')}
-    ${noeuds}</svg><figcaption>${legende}</figcaption></figure>`;
+  // Boutons de zoom par aéroport quand la carte couvre plusieurs stations éloignées.
+  const stationsPresentes = Object.keys(parStation);
+  if (stationsPresentes.length > 1) {
+    const Chips = L.Control.extend({
+      onAdd() {
+        const d = L.DomUtil.create('div', 'chips-carte');
+        d.innerHTML = '<button type="button" data-s="">Tout</button>' + stationsPresentes.map((c) => `<button type="button" data-s="${esc(c)}">${esc(c)}</button>`).join('');
+        L.DomEvent.disableClickPropagation(d);
+        d.onclick = (e) => { const b = e.target.closest('button'); if (b) cadrer(b.dataset.s ? parStation[b.dataset.s] : (chemin.length ? chemin.map((p) => [p.lat, p.lon]) : tous)); };
+        return d;
+      },
+    });
+    new Chips({ position: 'topright' }).addTo(map);
+  }
+  setTimeout(() => map.invalidateSize(), 150);
+  return map;
 }
 
 export const CANAUX = { SMS: 'SMS', WHATSAPP: 'WhatsApp', WEB: 'Portail' };

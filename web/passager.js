@@ -1,4 +1,4 @@
-import { api, esc, usd, pill, frise, heure, dateHeure, toast, ouvrirDialogue, qrImage, carte, chargerStations, CANAUX, STATUTS } from '/common.js';
+import { api, esc, usd, pill, frise, heure, dateHeure, toast, ouvrirDialogue, qrImage, zoneCarte, montrerCarte, CANAUX, STATUTS } from '/common.js';
 
 let acces;
 try { acces = JSON.parse(sessionStorage.getItem('ac_pax')); } catch { acces = null; }
@@ -15,7 +15,9 @@ let ouverts = new Set();
 
 async function charger(silencieux) {
   try {
-    donnees = await api('GET', url(), undefined, { auth: false });
+    const nouvelles = await api('GET', url(), undefined, { auth: false });
+    if (silencieux && donnees && JSON.stringify(nouvelles) === JSON.stringify(donnees)) return; // évite de recharger les cartes
+    donnees = nouvelles;
     await afficher();
   } catch (e) {
     if (silencieux) return;
@@ -25,7 +27,6 @@ async function charger(silencieux) {
 
 async function afficher() {
   const d = donnees, ex = d.excedent;
-  const stations = await chargerStations();
   const qrs = await Promise.all(d.bagages.map((b) => qrImage(b.code)));
   const nbSans = d.bagages.filter((b) => b.statut === 'PRE_ENREGISTRE').length;
 
@@ -56,9 +57,9 @@ async function afficher() {
           <div class="code mono">${esc(b.code)}</div>
           <div style="margin:6px 0">${pill(b.statut)} <span class="muted petit">${b.poidsKg} kg ${b.poidsReel ? '(pesé)' : '(déclaré)'}</span> ${b.niveau === 'VIP' ? '<span class="pill vip">VIP · RFID</span>' : ''}</div>
           ${b.statut === 'PRE_ENREGISTRE' ? '<p class="muted petit" style="margin:8px 0 0">En attente de dépôt en station.</p>' : frise(b.statut)}
-          ${carte(b.scans, d.vol, stations)}
+          <div class="legende-carte">Chemin suivi par le bagage, point de scan par point de scan :</div>${zoneCarte(280)}
           <details data-code="${esc(b.code)}" ${ouverts.has(b.code) ? 'open' : ''}><summary>Historique (${b.scans.length})</summary>
-            ${b.scans.length ? `<ul class="fil">${b.scans.map((s) => `<li><span class="t">${heure(s.ts)}</span><span>${esc(STATUTS[s.etape]?.label ?? s.etape)} · ${esc(s.station)}</span></li>`).join('')}</ul>` : '<p class="muted petit">Aucun mouvement pour l’instant.</p>'}
+            ${b.scans.length ? `<ul class="fil">${b.scans.map((s) => `<li><span class="t">${heure(s.ts)}</span><span>${esc(s.pointNom ?? STATUTS[s.etape]?.label ?? s.etape)}<br><span class="muted petit">${esc(STATUTS[s.etape]?.label ?? s.etape)} · ${esc(s.station)}</span></span></li>`).join('')}</ul>` : '<p class="muted petit">Aucun mouvement pour l’instant.</p>'}
           </details>
           <button class="btn danger mini" data-litige="${esc(b.code)}" style="margin-top:10px">Signaler un problème</button>
         </div>
@@ -70,6 +71,7 @@ async function afficher() {
   </section>
   <p class="muted petit" style="text-align:center">Mise à jour automatique · dernière à ${heure(new Date().toISOString())}</p>`;
 
+  document.querySelectorAll('.osm').forEach((el, i) => montrerCarte(el, { scans: d.bagages[i].scans }));
   document.querySelectorAll('details[data-code]').forEach((el) => (el.ontoggle = () => (el.open ? ouverts.add(el.dataset.code) : ouverts.delete(el.dataset.code))));
 
   const p = document.getElementById('payer');

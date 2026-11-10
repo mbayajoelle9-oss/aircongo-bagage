@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { connecterMongo } from './repo.mongo.js';
 import { creerApp } from './app.js';
-import { chargerDemo } from './logic.js';
+import { chargerDemo, peuplerPoints } from './logic.js';
 import { creerUtilisateur } from './utilisateurs.js';
 
 const { MONGODB_URI, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, FRONTEND_URL, SEED_DEMO } = process.env;
@@ -22,6 +22,8 @@ if (ADMIN_PASSWORD.length < 10) {
 }
 
 const repo = await connecterMongo(MONGODB_URI);
+
+await peuplerPoints(repo); // points de scan par défaut, créés une seule fois (la base existante est conservée)
 
 // Premier démarrage : création du compte administrateur à partir des variables d'environnement.
 if ((await repo.count('utilisateurs')) === 0) {

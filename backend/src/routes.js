@@ -18,6 +18,11 @@ import {
   stats,
   litiges,
   chargerDemo,
+  trouverPoint,
+  listerPoints,
+  creerPoint,
+  modifierPoint,
+  carteEnDirect,
 } from './logic.js';
 import { connexion, authentifier, vueUtilisateur, creerUtilisateur, listerUtilisateurs, modifierUtilisateur } from './utilisateurs.js';
 import { CONFIG, STATIONS } from './config.js';
@@ -76,8 +81,16 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false })
       const b = await creerBagage(repo, res.pnr, { poidsKg: body.poidsKg });
       return { code: b.code, reservation: await vueReservation(repo, res) };
     }),
+    r('GET', '/api/agent/points', async ({ headers }) => {
+      await exiger(headers, PERSONNEL);
+      return listerPoints(repo, { seulementActifs: true });
+    }),
     r('POST', '/api/agent/scans', async ({ body, headers }) => {
       const u = await exiger(headers, PERSONNEL);
+      if (u.role === 'AGENT') {
+        if (!body.pointId) throw new HttpError(400, 'Choisissez le point de scan');
+        if ((await trouverPoint(repo, body.pointId)).station !== u.station) throw new HttpError(403, 'Ce point appartient à une autre station');
+      }
       return enregistrerScan(repo, {
         ...body,
         agent: u.nom, // l'agent est toujours celui qui est connecté
@@ -90,6 +103,10 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false })
     }),
 
     // ----- Tableau de bord Air Congo (administrateur) -----
+    r('GET', '/api/admin/points', async ({ headers }) => { await exiger(headers, ['ADMIN']); return listerPoints(repo); }),
+    r('GET', '/api/admin/carte', async ({ headers }) => { await exiger(headers, ['ADMIN']); return carteEnDirect(repo); }),
+    r('POST', '/api/admin/points', async ({ body, headers }) => { await exiger(headers, ['ADMIN']); return creerPoint(repo, body); }),
+    r('PATCH', '/api/admin/points/:id', async ({ params, body, headers }) => { await exiger(headers, ['ADMIN']); return modifierPoint(repo, params.id, body); }),
     r('GET', '/api/admin/stats', async ({ headers }) => (await exiger(headers, ADMIN), stats(repo))),
     r('GET', '/api/admin/bagages', async ({ headers }) => (await exiger(headers, ADMIN), listeBagages(repo))),
     r('GET', '/api/admin/alertes', async ({ headers }) => (await exiger(headers, ADMIN), alertes(repo))),
