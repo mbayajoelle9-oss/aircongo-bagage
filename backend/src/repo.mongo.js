@@ -47,6 +47,10 @@ const schemas = {
     },
     opts,
   ),
+  notifications: new Schema(
+    { id: idChamp(), reservationId: { type: String, index: true }, bagageId: String, code: String, etape: String, station: String, canal: String, telephone: String, message: String, statut: String, ts: String },
+    opts,
+  ),
   paiements: new Schema(
     { id: idChamp(), reservationId: { type: String, index: true }, kg: Number, montantUsd: Number, canal: String, ts: String },
     opts,

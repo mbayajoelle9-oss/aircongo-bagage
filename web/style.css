@@ -217,3 +217,16 @@ body.fond-clair { background: var(--gris-clair); }
 .prix .barre-prix { text-decoration: line-through; color: var(--gris); font-size: 20px; }
 .prix .vert-t { color: var(--vert); }
 textarea.input { resize: vertical; }
+
+/* Cartographie du trajet */
+.carte-trajet { margin: 14px 0 4px; }
+.carte-trajet svg { width: 100%; height: auto; display: block; }
+.carte-trajet figcaption { margin-top: 8px; font-size: 13px; color: var(--texte); }
+.notifs { list-style: none; margin: 0; padding: 0; }
+.notifs li { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--bord); font-size: 14px; }
+.notifs li:first-child { border-top: 0; }
+.notifs .canal { flex: none; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: var(--bleu-pale); color: var(--bleu-fonce); height: fit-content; }
+.etiquette { text-align: center; padding: 8px 0; }
+.etiquette img { width: 170px; height: 170px; image-rendering: pixelated; }
+.etiquette .code { font-size: 26px; font-weight: 700; letter-spacing: 2px; color: var(--marine); }
+@media print { body > *:not(dialog) { display: none !important; } dialog.modal { position: static; box-shadow: none; } dialog.modal .actions, dialog.modal form { display: none !important; } }

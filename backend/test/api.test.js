@@ -95,7 +95,8 @@ test('données démo : excédent, alerte, VIP', async () => {
 
 test('scénario complet : pré-enregistrement -> livraison + paiement', async () => {
   const { call, AD, AG } = await demarrer();
-  const ajout = await call('POST', '/api/suivi/ACB456/bagages', { body: { nom: 'Tshimanga', poidsKg: 15 } });
+  assert.equal((await call('POST', '/api/suivi/ACB456/bagages', { body: { nom: 'Tshimanga', poidsKg: 15 } })).status, 404); // le passager ne crée pas d'étiquette
+  const ajout = await call('POST', '/api/agent/bagages', { token: AG, body: { pnr: 'ACB456', poidsKg: 15 } });
   assert.equal(ajout.status, 200);
   const code = ajout.json.code;
   assert.match(code, /^AC\d{6}$/);
@@ -162,11 +163,25 @@ test('gestion des utilisateurs : création, doublon, désactivation immédiate',
 
 test('validations et réinitialisation démo (comptes conservés)', async () => {
   const { call, AD, AG } = await demarrer();
-  assert.equal((await call('POST', '/api/suivi/ACG123/bagages', { body: { nom: 'Mbemba', poidsKg: -3 } })).status, 400);
-  assert.equal((await call('POST', '/api/suivi/ACG123/bagages', { body: { nom: 'Mbemba', poidsKg: 500 } })).status, 400);
+  assert.equal((await call('POST', '/api/agent/bagages', { token: AG, body: { pnr: 'ACG123', poidsKg: -3 } })).status, 400);
+  assert.equal((await call('POST', '/api/agent/bagages', { token: AG, body: { pnr: 'ACG123', poidsKg: 500 } })).status, 400);
+  assert.equal((await call('POST', '/api/agent/bagages', { body: { pnr: 'ACG123', poidsKg: 5 } })).status, 401);
   assert.equal((await call('GET', '/api/health')).json.ok, true);
   assert.equal((await call('POST', '/api/admin/demo/reset', { token: AG })).status, 403);
   assert.equal((await call('POST', '/api/admin/demo/reset', { token: AD })).status, 200);
   assert.equal((await call('GET', '/api/auth/me', { token: AD })).status, 200); // le compte existe toujours
   assert.equal((await call('GET', '/api/admin/stats', { token: AD })).json.totalBagages, 5);
+});
+
+test('alertes passager à chaque scan + stations connues', async () => {
+  const { call, AD } = await demarrer();
+  const v = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json;
+  assert.equal(v.canalAlerte, 'WHATSAPP');
+  assert.equal(v.notifications.length, 4); // 2 bagages x (enregistré, chargé)
+  assert.match(v.notifications[0].message, /^Air Congo : votre bagage AC\d{6} .* \(FIH\)/);
+  assert.ok(!v.telephone.includes('000 000 002'));
+  const cfg = (await call('GET', '/api/config')).json;
+  assert.ok(cfg.stations.FIH && cfg.stations.FBM);
+  const r = await call('POST', '/api/admin/utilisateurs', { token: AD, body: { nom: 'X Y', email: 'x@y.cd', motDePasse: 'motdepasse-123', role: 'AGENT', station: 'ZZZ' } });
+  assert.equal(r.status, 400);
 });

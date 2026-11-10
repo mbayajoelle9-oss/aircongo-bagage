@@ -20,7 +20,7 @@ import {
   chargerDemo,
 } from './logic.js';
 import { connexion, authentifier, vueUtilisateur, creerUtilisateur, listerUtilisateurs, modifierUtilisateur } from './utilisateurs.js';
-import { CONFIG } from './config.js';
+import { CONFIG, STATIONS } from './config.js';
 
 export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false }) {
   const exiger = (headers, roles) => authentifier(repo, jwtSecret, headers, roles);
@@ -38,12 +38,6 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false })
       const res = await trouverReservation(repo, params.pnr);
       verifierPassager(res, query.nom);
       return vueReservation(repo, res);
-    }),
-    r('POST', '/api/suivi/:pnr/bagages', async ({ params, body }) => {
-      const res = await trouverReservation(repo, params.pnr);
-      verifierPassager(res, body.nom);
-      const b = await creerBagage(repo, res.pnr, { poidsKg: body.poidsKg });
-      return { code: b.code, reservation: await vueReservation(repo, res) };
     }),
     r('POST', '/api/suivi/:pnr/payer', async ({ params, body }) => {
       const res = await trouverReservation(repo, params.pnr);
@@ -70,6 +64,17 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false })
         classe: res.classe,
         excedent: await calculExcedent(repo, res),
       };
+    }),
+    r('GET', '/api/agent/reservations/:pnr', async ({ params, headers }) => {
+      await exiger(headers, PERSONNEL);
+      return vueReservation(repo, await trouverReservation(repo, params.pnr));
+    }),
+    // L'étiquette (code + QR) est émise par Air Congo, jamais par le passager.
+    r('POST', '/api/agent/bagages', async ({ body, headers }) => {
+      await exiger(headers, PERSONNEL);
+      const res = await trouverReservation(repo, body.pnr);
+      const b = await creerBagage(repo, res.pnr, { poidsKg: body.poidsKg });
+      return { code: b.code, reservation: await vueReservation(repo, res) };
     }),
     r('POST', '/api/agent/scans', async ({ body, headers }) => {
       const u = await exiger(headers, PERSONNEL);
@@ -113,6 +118,7 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false })
       franchiseKg: CONFIG.franchiseKg,
       tarifExcedentUsd: CONFIG.tarifExcedentUsd,
       remisePrepaiement: CONFIG.remisePrepaiement,
+      stations: STATIONS,
     })),
     r('GET', '/api/health', async () => ({ ok: true })),
   ];

@@ -1,12 +1,13 @@
-import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, STATUTS } from '/common.js';
+import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, qrImage, carte, chargerStations, STATUTS } from '/common.js';
 
 const moi = session.user;
+let STATIONS_INFO = {};
 if (!session.token || !moi) location.replace('/index.html');
 
 const $ = (id) => document.getElementById(id);
 const vue = $('vue');
 const EST_ADMIN = moi?.role === 'ADMIN';
-const STATIONS = ['FIH', 'FBM', 'GOM'];
+let STATIONS = [];
 
 const TYPES_LITIGE = { PERDU: 'Perdu', ENDOMMAGE: 'Endommagé', RETARDE: 'Retardé', CONTENU_MANQUANT: 'Contenu manquant' };
 const STATUTS_LITIGE = { OUVERT: 'Ouvert', EN_COURS: 'En cours', RESOLU: 'Résolu' };
@@ -34,6 +35,7 @@ function menu(actif) {
 
 // ---------- Routage ----------
 async function naviguer() {
+  if (!STATIONS.length) { STATIONS_INFO = await chargerStations(); STATIONS = Object.keys(STATIONS_INFO); }
   nettoyages.forEach((f) => f());
   nettoyages = [];
   const id = location.hash.replace('#/', '') || PAGES[0].id;
@@ -102,7 +104,7 @@ async function vueDashboard() {
 async function vueBagages() {
   const liste = await api('GET', '/api/admin/bagages');
   vue.innerHTML =
-    entete('Bagages', `${liste.length} bagage(s) enregistré(s)`) +
+    entete('Bagages', `${liste.length} bagage(s) enregistré(s)`, `<button class="btn" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
     `<div class="carte"><div class="outils">
       <input class="input" id="q" placeholder="Rechercher un code, un passager, un vol…" aria-label="Rechercher">
       <select class="input" id="f" style="max-width:200px" aria-label="Filtrer par statut"><option value="">Tous les statuts</option>${Object.entries(STATUTS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>
@@ -116,6 +118,7 @@ async function vueBagages() {
       : '<tr><td colspan="7" class="vide">Aucun bagage ne correspond.</td></tr>';
     document.querySelectorAll('#corps tr.clic').forEach((tr) => (tr.onclick = () => detailBagage(liste.find((b) => b.code === tr.dataset.code))));
   };
+  $('etiq').onclick = () => nouvelleEtiquette(() => vueBagages());
   $('q').oninput = afficher; $('f').onchange = afficher;
   afficher();
 }
@@ -126,6 +129,7 @@ function detailBagage(b) {
     <p class="muted" style="margin:2px 0 0">${esc(b.passager)} · réservation ${esc(b.pnr)} · vol ${esc(b.vol)}</p>
     <p style="margin:10px 0 0">${pill(b.statut)} <span class="muted petit">${b.poidsKg} kg ${b.poidsReel ? '(pesé)' : '(déclaré)'} · suivi ${b.niveau === 'VIP' ? 'RFID' : 'par scan'}</span></p>
     ${frise(b.statut)}
+    ${carte(b.scans, b.trajetVol ?? {}, STATIONS_INFO)}
     <h3 style="margin-top:18px">Historique</h3>
     ${b.scans.length ? `<ul class="fil">${b.scans.map((s) => `<li><span class="t">${heure(s.ts)}</span><span>${esc(STATUTS[s.etape]?.label ?? s.etape)} · ${esc(s.station)}<br><span class="muted petit">${esc(s.agent)}${s.source === 'RFID' ? ' · RFID' : ''}${s.saut ? ' · étape sautée' : ''}</span></span></li>`).join('')}</ul>` : '<p class="muted">Aucun mouvement.</p>'}
     <div class="actions"><button class="btn sec" value="x">Fermer</button></div>`);
@@ -172,7 +176,7 @@ async function vueUtilisateurs() {
         <label class="champ">Adresse e-mail<input class="input" name="email" type="email" required></label>
         <label class="champ">Mot de passe (10 caractères minimum)<input class="input" name="motDePasse" type="password" minlength="10" required autocomplete="new-password"></label>
         <div class="rang"><label class="champ">Rôle<select class="input" name="role"><option value="AGENT">Agent en station</option><option value="ADMIN">Administrateur</option></select></label>
-        <label class="champ" id="chSt">Station<input class="input" name="station" maxlength="4" placeholder="FIH" style="text-transform:uppercase"></label></div>
+        <label class="champ" id="chSt">Station<select class="input" name="station">${STATIONS.map((c) => `<option value="${c}">${c} · ${esc(STATIONS_INFO[c].nom)}</option>`).join('')}</select></label></div>
         <div id="eN" class="erreur" hidden></div>
         <div class="actions"><button type="button" class="btn sec" id="ann">Annuler</button><button class="btn" type="submit">Créer le compte</button></div>
       </form>`);
@@ -219,9 +223,9 @@ async function vueScanner() {
   const ETAPES = [['ENREGISTRE', 'Enregistrement'], ['CHARGE', 'Chargement'], ['TRANSIT', 'Transit'], ['ARRIVE', 'Arrivée'], ['LIVRE', 'Remise']];
 
   vue.innerHTML =
-    entete('Scanner un bagage', EST_ADMIN ? 'Mode administrateur : vous choisissez la station.' : `Station ${moi.station} · ${moi.nom}`) +
+    entete('Scanner un bagage', EST_ADMIN ? 'Mode administrateur : vous choisissez la station.' : `Station ${moi.station} · ${STATIONS_INFO[moi.station]?.nom ?? ''} · ${moi.nom}`, `<button class="btn sec" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
     `<div class="grille2"><div class="carte"><h2>Scan</h2>
-      ${EST_ADMIN ? `<label class="champ">Station<select class="input" id="st">${STATIONS.map((s) => `<option>${s}</option>`).join('')}</select></label>` : ''}
+      ${EST_ADMIN ? `<label class="champ">Station<select class="input" id="st">${STATIONS.map((c) => `<option value="${c}">${c} · ${esc(STATIONS_INFO[c].nom)}</option>`).join('')}</select></label>` : ''}
       <label class="champ">Étape du bagage</label><div class="segments" id="seg"></div>
       <label class="champ" for="code">Code du bagage</label>
       <input class="input grand" id="code" placeholder="AC123456" autocomplete="off" autocapitalize="characters" autofocus>
@@ -233,6 +237,7 @@ async function vueScanner() {
     <div><div class="carte" id="fiche"><h2>Bagage</h2><p class="muted" style="margin:0">Saisissez ou scannez un code pour voir le passager et l'excédent éventuel.</p></div>
     <div class="carte"><h2>Derniers scans</h2><ul class="fil" id="hist"></ul></div></div></div>`;
 
+  $('etiq').onclick = () => nouvelleEtiquette();
   const afficherHist = () => {
     $('hist').innerHTML = historique.length
       ? historique.slice(0, 8).map((h) => `<li><span class="t">${heure(h.ts)}</span><span><b class="mono">${esc(h.code)}</b> · ${esc(h.libelle)}<br><span class="muted petit">${esc(h.station)}</span></span></li>`).join('')
@@ -323,6 +328,47 @@ async function vueScanner() {
         } catch { /* image pas prête */ }
       }, 350);
     } catch { arreter(); toast('Impossible d’accéder à la caméra (autorisation refusée ?).', 'err'); }
+  };
+}
+
+// ============================================================
+// Émission d'une étiquette (code + QR) : réservée au personnel Air Congo
+// ============================================================
+function nouvelleEtiquette(apres) {
+  const d = ouvrirDialogue(`<h2>Nouvelle étiquette bagage</h2>
+    <p class="muted petit" style="margin:2px 0 0">Saisissez la réservation du passager, puis le poids lu sur la balance.</p>
+    <form id="fE"><label class="champ">Numéro de réservation<input class="input" name="pnr" required autocomplete="off" style="text-transform:uppercase" placeholder="ACG123"></label>
+    <div id="infoRes" class="muted petit" style="margin-top:8px"></div>
+    <label class="champ">Poids (kg)<input class="input" name="poids" type="number" inputmode="decimal" step="0.1" min="0.1" max="80" required></label>
+    <div id="eE" class="erreur" hidden></div>
+    <div class="actions"><button type="button" class="btn sec" id="ann">Fermer</button><button class="btn" type="submit">Émettre l’étiquette</button></div></form>
+    <div id="res" hidden></div>`);
+  const f = d.querySelector('#fE');
+  d.querySelector('#ann').onclick = () => { d.close(); apres?.(); };
+  f.pnr.onchange = async () => {
+    const i = d.querySelector('#infoRes');
+    try {
+      const r = await api('GET', `/api/agent/reservations/${encodeURIComponent(f.pnr.value.trim())}`);
+      i.textContent = `${r.nom} · ${r.classe} · vol ${r.vol.numero} ${r.vol.depart}→${r.vol.arrivee} · ${r.bagages.length} bagage(s) déjà étiqueté(s)`;
+    } catch (e) { i.textContent = e.message; }
+  };
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const er = d.querySelector('#eE'); er.hidden = true;
+    try {
+      const r = await api('POST', '/api/agent/bagages', { pnr: f.pnr.value.trim(), poidsKg: f.poids.value });
+      const qr = await qrImage(r.code);
+      const ex = r.reservation.excedent;
+      f.hidden = true;
+      const z = d.querySelector('#res'); z.hidden = false;
+      z.innerHTML = `<div class="etiquette">${qr || ''}<div class="code mono">${esc(r.code)}</div><div class="muted">${esc(r.reservation.nom)} · ${esc(r.reservation.vol.depart)} → ${esc(r.reservation.vol.arrivee)}</div></div>
+        ${ex.kgRestants > 0 ? `<div class="excedent"><b>Excédent : ${ex.kgRestants} kg = ${usd(ex.montantComptoirUsd)}</b></div>` : ''}
+        <div class="actions"><button class="btn sec" id="ferme">Fermer</button><button class="btn sec" id="autre">Autre bagage</button><button class="btn" id="imp">Imprimer</button></div>`;
+      d.querySelector('#ferme').onclick = () => { d.close(); apres?.(); };
+      d.querySelector('#imp').onclick = () => window.print();
+      d.querySelector('#autre').onclick = () => { z.hidden = true; f.hidden = false; f.poids.value = ''; f.poids.focus(); };
+      toast(`Étiquette ${r.code} émise`);
+    } catch (e) { er.textContent = e.message; er.hidden = false; }
   };
 }
 

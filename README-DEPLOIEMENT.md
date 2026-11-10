@@ -33,3 +33,10 @@ Vérifiez web/config.js : API_URL = https://aircongo-bagage.onrender.com
 - Ouvrez https://aircongo-bagage.onrender.com/api/health (réveille le serveur, ~1 min).
 - Connectez-vous en administrateur, créez un compte Agent (station FIH) depuis Utilisateurs.
 - Passager de démo : ACG123 / Mbemba — VIP : ACV777 / Kabila — Business : ACB456 / Tshimanga.
+
+## Nouveautés de cette version
+- Les étiquettes (code + QR) sont émises par le personnel (bouton « Nouvelle étiquette »), jamais par le passager.
+- Cartographie du trajet de chaque bagage (scan et RFID), côté passager et côté administration.
+- Alertes passager à chaque scan (SMS, WhatsApp ou portail). L'envoi réel de SMS/WhatsApp nécessite un fournisseur : simulé pour l'instant.
+- Chaque point de passage est une station : liste dans backend/src/config.js (STATIONS). Le compte d'un agent doit utiliser l'un de ces codes.
+- Après mise à jour : SEED_DEMO=true recharge les données de démonstration seulement si la base est vide ; pour les recharger, connectez-vous en administrateur puis POST /api/admin/demo/reset.

@@ -1,3 +1,4 @@
+import { STATIONS } from './config.js';
 import { HttpError } from './logic.js';
 import { hasherMotDePasse, verifierMotDePasse, signerJeton, verifierJeton } from './auth.js';
 
@@ -33,7 +34,7 @@ export async function creerUtilisateur(repo, { nom, email, motDePasse, role, sta
   let st = null;
   if (r === 'AGENT') {
     st = String(station ?? '').trim().toUpperCase();
-    if (!/^[A-Z]{3,4}$/.test(st)) throw new HttpError(400, 'Station requise (code de 3 ou 4 lettres, ex. FIH)');
+    if (!STATIONS[st]) throw new HttpError(400, `Station inconnue. Stations : ${Object.keys(STATIONS).join(', ')}`);
   }
   if (await repo.findOne('utilisateurs', { email: e })) throw new HttpError(409, 'Cette adresse e-mail existe déjà');
   const u = await repo.insert('utilisateurs', {

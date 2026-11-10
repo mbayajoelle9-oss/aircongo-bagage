@@ -1,5 +1,5 @@
 // Logique métier. Indépendante d'Express et de MongoDB : elle ne parle qu'au « dépôt » (repo).
-import { CONFIG, ETAPES, LIBELLES } from './config.js';
+import { CONFIG, ETAPES, LIBELLES, STATIONS } from './config.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -93,8 +93,12 @@ export async function vueReservation(repo, reservation) {
   const vol = await repo.findOne('vols', { id: reservation.volId });
   const docs = await repo.find('bagages', { reservationId: reservation.id });
   const bagages = await Promise.all(docs.map((b) => vueBagage(repo, b)));
+  const notifications = (await repo.find('notifications', { reservationId: reservation.id })).sort((a, b) => b.ts.localeCompare(a.ts));
   return {
     pnr: reservation.pnr,
+    canalAlerte: reservation.canalAlerte || 'SMS',
+    telephone: reservation.telephone ? reservation.telephone.replace(/\d(?=(?:\D*\d){3})/g, "•") : null,
+    notifications: notifications.map(({ code, etape, station, canal, message, ts }) => ({ code, etape, station, canal, message, ts })),
     nom: reservation.nom,
     classe: reservation.classe,
     vol,
@@ -123,6 +127,34 @@ export async function creerBagage(repo, pnr, { poidsKg }) {
     poidsReel: false,
     niveau: reservation.classe === 'VIP' ? 'VIP' : 'STANDARD',
     creeLe: new Date().toISOString(),
+  });
+}
+
+const heureLocale = (iso) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Kinshasa' });
+const MESSAGES = {
+  ENREGISTRE: 'a été enregistré',
+  CHARGE: 'a été chargé dans l’avion',
+  TRANSIT: 'est en transit',
+  ARRIVE: 'est arrivé à destination',
+  LIVRE: 'vous a été remis',
+};
+
+// Alerte envoyée au passager à chaque scan. Le canal (SMS pour les téléphones simples, WhatsApp, ou simple
+// notification dans le portail) est enregistré ; l'envoi réel via un fournisseur SMS est prévu en phase 2.
+async function alerterPassager(repo, reservation, bagage, scan) {
+  const st = STATIONS[scan.station];
+  const lieu = st ? `${st.ville} (${scan.station})` : scan.station;
+  return repo.insert('notifications', {
+    reservationId: reservation.id,
+    bagageId: bagage.id,
+    code: bagage.code,
+    etape: scan.etape,
+    station: scan.station,
+    canal: reservation.canalAlerte || 'SMS',
+    telephone: reservation.telephone || null,
+    message: `Air Congo : votre bagage ${bagage.code} ${MESSAGES[scan.etape]} à ${lieu}, ${heureLocale(scan.ts)}.`,
+    statut: 'SIMULE',
+    ts: scan.ts,
   });
 }
 
@@ -159,6 +191,7 @@ export async function enregistrerScan(repo, { code, etape, station, agent, poids
   });
 
   const reservation = await repo.findOne('reservations', { id: bagage.reservationId });
+  await alerterPassager(repo, reservation, bagage, scan);
   return {
     scan,
     bagage: await vueBagage(repo, bagageMaj),
@@ -231,6 +264,7 @@ async function contexte(repo) {
       passager: r?.nom,
       pnr: r?.pnr,
       vol: volParId.get(r?.volId)?.numero,
+      trajetVol: { depart: volParId.get(r?.volId)?.depart, arrivee: volParId.get(r?.volId)?.arrivee },
     };
   });
 }
@@ -284,11 +318,11 @@ export async function litiges(repo) {
 
 // ---- Données de démonstration (fictives) ----
 export async function chargerDemo(repo) {
-  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements']); // les comptes utilisateurs sont conservés
+  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements', 'notifications']); // les comptes utilisateurs sont conservés
   const vol1 = await repo.insert('vols', { numero: 'DEMO-101', depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30' });
   const vol2 = await repo.insert('vols', { numero: 'DEMO-205', depart: 'FIH', arrivee: 'GOM', heureDepart: '11:15' });
   await repo.insert('reservations', { pnr: 'ACG123', nom: 'Mbemba Joseph', classe: 'ECO', volId: vol1.id, telephone: '+243 000 000 001' });
-  await repo.insert('reservations', { pnr: 'ACV777', nom: 'Kabila Sarah', classe: 'VIP', volId: vol1.id, telephone: '+243 000 000 002' });
+  await repo.insert('reservations', { pnr: 'ACV777', nom: 'Kabila Sarah', classe: 'VIP', volId: vol1.id, telephone: '+243 000 000 002', canalAlerte: 'WHATSAPP' });
   await repo.insert('reservations', { pnr: 'ACB456', nom: 'Tshimanga Patrick', classe: 'BUSINESS', volId: vol2.id, telephone: '+243 000 000 003' });
 
   const m1 = await creerBagage(repo, 'ACG123', { poidsKg: 18 });

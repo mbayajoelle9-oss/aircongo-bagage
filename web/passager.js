@@ -1,4 +1,4 @@
-import { api, esc, usd, pill, frise, heure, dateHeure, toast, ouvrirDialogue, qrImage, STATUTS } from '/common.js';
+import { api, esc, usd, pill, frise, heure, dateHeure, toast, ouvrirDialogue, qrImage, carte, chargerStations, CANAUX, STATUTS } from '/common.js';
 
 let acces;
 try { acces = JSON.parse(sessionStorage.getItem('ac_pax')); } catch { acces = null; }
@@ -25,6 +25,7 @@ async function charger(silencieux) {
 
 async function afficher() {
   const d = donnees, ex = d.excedent;
+  const stations = await chargerStations();
   const qrs = await Promise.all(d.bagages.map((b) => qrImage(b.code)));
   const nbSans = d.bagages.filter((b) => b.statut === 'PRE_ENREGISTRE').length;
 
@@ -46,9 +47,8 @@ async function afficher() {
     <p class="muted petit" style="margin:8px 0 0">Paiement simulé dans cette démonstration.</p></section>`
     : ex.excesKg > 0 ? '<section class="carte"><div class="excedent ok">Excédent réglé. Merci !</div></section>' : ''}
 
-  <section class="carte"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Mes bagages</h2>
-    <button class="btn sec mini" id="ajouter" ${d.bagages.length >= 5 ? 'disabled' : ''}>+ Ajouter un bagage</button></div>
-    ${nbSans ? `<p class="muted petit" style="margin:10px 0 0">Présentez le QR code de chaque bagage à la borne ou à l'agent : plus besoin de faire la queue.</p>` : ''}
+  <section class="carte"><h2 style="margin:0">Mes bagages</h2>
+    ${nbSans ? `<p class="muted petit" style="margin:10px 0 0">Votre étiquette est émise par Air Congo. Le bagage apparaît ici dès son premier passage en station.</p>` : ''}
     ${d.bagages.length ? d.bagages.map((b, i) => `
       <article class="sac" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--bord)">
         <div class="qr">${qrs[i] || `<div class="sans">QR indisponible<br>utilisez le code</div>`}</div>
@@ -56,12 +56,17 @@ async function afficher() {
           <div class="code mono">${esc(b.code)}</div>
           <div style="margin:6px 0">${pill(b.statut)} <span class="muted petit">${b.poidsKg} kg ${b.poidsReel ? '(pesé)' : '(déclaré)'}</span> ${b.niveau === 'VIP' ? '<span class="pill vip">VIP · RFID</span>' : ''}</div>
           ${b.statut === 'PRE_ENREGISTRE' ? '<p class="muted petit" style="margin:8px 0 0">En attente de dépôt en station.</p>' : frise(b.statut)}
+          ${carte(b.scans, d.vol, stations)}
           <details data-code="${esc(b.code)}" ${ouverts.has(b.code) ? 'open' : ''}><summary>Historique (${b.scans.length})</summary>
             ${b.scans.length ? `<ul class="fil">${b.scans.map((s) => `<li><span class="t">${heure(s.ts)}</span><span>${esc(STATUTS[s.etape]?.label ?? s.etape)} · ${esc(s.station)}</span></li>`).join('')}</ul>` : '<p class="muted petit">Aucun mouvement pour l’instant.</p>'}
           </details>
           <button class="btn danger mini" data-litige="${esc(b.code)}" style="margin-top:10px">Signaler un problème</button>
         </div>
-      </article>`).join('') : '<p class="muted" style="margin-top:14px">Aucun bagage pré-enregistré. Ajoutez-en un pour obtenir son QR code.</p>'}
+      </article>`).join('') : '<p class="muted" style="margin-top:14px">Aucun bagage n’est encore associé à cette réservation. Présentez-vous au comptoir Air Congo : l’agent émet l’étiquette de chaque bagage.</p>'}
+  </section>
+  <section class="carte"><h2>Alertes de suivi</h2>
+    <p class="muted petit" style="margin:0 0 6px">${d.telephone ? `Envoyées par ${esc(CANAUX[d.canalAlerte] ?? d.canalAlerte)} au ${esc(d.telephone)}. ` : ''}Aucune application à installer : ce suivi fonctionne sur tout téléphone et ordinateur, et les SMS sur les téléphones simples.</p>
+    ${d.notifications.length ? `<ul class="notifs">${d.notifications.slice(0, 12).map((n) => `<li><span class="canal">${esc(CANAUX[n.canal] ?? n.canal)}</span><span>${esc(n.message)}</span></li>`).join('')}</ul>` : '<p class="muted">Aucune alerte pour le moment. Vous en recevrez une à chaque scan de vos bagages.</p>'}
   </section>
   <p class="muted petit" style="text-align:center">Mise à jour automatique · dernière à ${heure(new Date().toISOString())}</p>`;
 
@@ -73,23 +78,7 @@ async function afficher() {
     try { await api('POST', `/api/suivi/${encodeURIComponent(acces.pnr)}/payer`, corps(), { auth: false }); toast('Paiement reçu'); await charger(); }
     catch (e) { toast(e.message, 'err'); p.disabled = false; }
   };
-  document.getElementById('ajouter').onclick = ajouter;
   document.querySelectorAll('[data-litige]').forEach((b) => (b.onclick = () => litige(b.dataset.litige)));
-}
-
-function ajouter() {
-  const d = ouvrirDialogue(`<h2>Ajouter un bagage</h2><p class="muted petit" style="margin:2px 0 0">Indiquez le poids approximatif ; il sera vérifié à la pesée.</p>
-    <form id="f"><label class="champ">Poids estimé (kg)<input class="input" name="poids" type="number" inputmode="decimal" step="0.5" min="1" max="80" required autofocus></label>
-    <div id="e" class="erreur" hidden></div>
-    <div class="actions"><button type="button" class="btn sec" id="ann">Annuler</button><button class="btn" type="submit">Générer le QR code</button></div></form>`);
-  d.querySelector('#ann').onclick = () => d.close();
-  d.querySelector('#f').onsubmit = async (ev) => {
-    ev.preventDefault();
-    try {
-      await api('POST', `/api/suivi/${encodeURIComponent(acces.pnr)}/bagages`, corps({ poidsKg: ev.target.poids.value }), { auth: false });
-      d.close(); toast('Bagage ajouté'); await charger();
-    } catch (e) { const el = d.querySelector('#e'); el.textContent = e.message; el.hidden = false; }
-  };
 }
 
 function litige(code) {
