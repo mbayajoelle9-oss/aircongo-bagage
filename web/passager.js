@@ -25,6 +25,17 @@ async function charger(silencieux) {
   }
 }
 
+const CLASSE_VOL = { PREVU: 'bleu', RETARDE: 'rouge', EN_VOL: 'bleu', ATTERRI: 'vert' };
+function volEtat(v) {
+  const bits = [];
+  if (v.date) bits.push(new Date(v.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }));
+  if (v.terminal) bits.push(`Terminal ${esc(v.terminal)}`);
+  if (v.porte) bits.push(`Porte ${esc(v.porte)}`);
+  if (v.retardMin > 0) bits.push(`Retard estimé : ${v.retardMin} min${v.heureDepartEstimee ? ` (départ vers ${esc(v.heureDepartEstimee)})` : ''}`);
+  if (!v.libelleStatut && !bits.length) return '';
+  return `<div class="vol-etat">${v.libelleStatut ? `<span class="pill ${CLASSE_VOL[v.statut] ?? 'rouge'}">${esc(v.libelleStatut)}</span> ` : ''}<span>${bits.join(' · ')}</span></div>`;
+}
+
 async function afficher() {
   const d = donnees, ex = d.excedent;
   const qrs = await Promise.all(d.bagages.map((b) => qrImage(b.code)));
@@ -38,6 +49,7 @@ async function afficher() {
       <div class="trait"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12h18M14 6l6 6-6 6"/></svg></div>
       <div class="ville d"><b>${esc(d.vol.arrivee)}</b><span>Vol ${esc(d.vol.numero)}</span></div>
     </div>
+    ${volEtat(d.vol)}
     <div class="pied"><div><b>${d.bagages.length}</b>bagage(s)</div><div><b>${ex.totalKg} kg</b>poids total</div><div><b>${ex.franchiseKg} kg</b>franchise incluse</div></div>
   </section>
 

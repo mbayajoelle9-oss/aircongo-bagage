@@ -31,6 +31,7 @@ export function creerApp(repo, options) {
     rateLimit({ windowMs: 15 * 60_000, limit: 15, skipSuccessfulRequests: true, standardHeaders: true, legacyHeaders: false, message: { erreur: 'Trop de tentatives, réessayez dans quelques minutes' } }),
   );
   app.use('/api/suivi', rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false }));
+  app.use('/api/rfid', rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: true, legacyHeaders: false }));
   app.use('/api/agent', rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));
   app.use('/api/admin', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 

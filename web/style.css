@@ -253,3 +253,9 @@ textarea.input { resize: vertical; }
 .points-liste button.on { border-color: var(--bleu); background: var(--bleu-pale); box-shadow: 0 0 0 1px var(--bleu); }
 .carte-grille { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .carte-grille { grid-template-columns: 1fr; } }
+
+.vol-etat { padding: 10px 20px 0; font-size: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.capa-barre { display: flex; height: 12px; border-radius: 6px; background: #e3e9f0; overflow: hidden; margin-bottom: 5px; }
+.capa-barre .b, .capa-leg.b { background: var(--bleu); } .capa-barre .f, .capa-leg.f { background: var(--jaune); }
+.capa-leg { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 12px; } .capa-leg.l { background: #e3e9f0; }

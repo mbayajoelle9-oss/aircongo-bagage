@@ -26,8 +26,11 @@ import {
 } from './logic.js';
 import { connexion, authentifier, vueUtilisateur, creerUtilisateur, listerUtilisateurs, modifierUtilisateur } from './utilisateurs.js';
 import { CONFIG, STATIONS } from './config.js';
+import { capaciteVols, configurerVol, vendreEspace, listerVentes } from './capacite.js';
+import { cleLecteurValide, traiterLectures } from './rfid.js';
+import { rechercherVols, importerVol, synchroniserVols, listerVols } from './vols.js';
 
-export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false }) {
+export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, fournisseurVols = null, cleLecteurRfid = null }) {
   const exiger = (headers, roles) => authentifier(repo, jwtSecret, headers, roles);
   const r = (method, path, handler) => ({ method, path, handler });
   const PERSONNEL = ['AGENT', 'ADMIN'];
@@ -103,6 +106,28 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false })
     }),
 
     // ----- Tableau de bord Air Congo (administrateur) -----
+    r('GET', '/api/admin/vols', async ({ headers }) => {
+      await exiger(headers, ['ADMIN']);
+      return { actif: Boolean(fournisseurVols), fournisseur: fournisseurVols?.nom ?? null, vols: await listerVols(repo) };
+    }),
+    r('GET', '/api/admin/vols/recherche', async ({ query, headers }) => { await exiger(headers, ['ADMIN']); return rechercherVols(fournisseurVols, query); }),
+    r('POST', '/api/admin/vols/importer', async ({ body, headers }) => { await exiger(headers, ['ADMIN']); return importerVol(repo, fournisseurVols, body); }),
+    r('POST', '/api/admin/vols/synchroniser', async ({ headers }) => { await exiger(headers, ['ADMIN']); return synchroniserVols(repo, fournisseurVols); }),
+    // Lecteurs RFID : authentifiés par une clé partagée (en-tête x-lecteur-cle), pas par un compte utilisateur.
+    r('POST', '/api/rfid/lecture', async ({ body, headers }) => {
+      if (!cleLecteurRfid) throw new HttpError(503, 'Lecteurs RFID non configurés (RFID_READER_KEY)');
+      if (!cleLecteurValide(cleLecteurRfid, headers['x-lecteur-cle'])) throw new HttpError(401, 'Clé de lecteur invalide');
+      return traiterLectures(repo, Array.isArray(body.lectures) ? body.lectures : [body]);
+    }),
+    r('GET', '/api/admin/capacite', async ({ headers }) => {
+      await exiger(headers, ['ADMIN']);
+      return { vols: await capaciteVols(repo), ventes: await listerVentes(repo) };
+    }),
+    r('PATCH', '/api/admin/vols/:id', async ({ params, body, headers }) => { await exiger(headers, ['ADMIN']); return configurerVol(repo, params.id, body); }),
+    r('POST', '/api/agent/ventes-espace', async ({ body, headers }) => {
+      const u = await exiger(headers, PERSONNEL);
+      return vendreEspace(repo, { ...body, agent: u.nom });
+    }),
     r('GET', '/api/admin/points', async ({ headers }) => { await exiger(headers, ['ADMIN']); return listerPoints(repo); }),
     r('GET', '/api/admin/carte', async ({ headers }) => { await exiger(headers, ['ADMIN']); return carteEnDirect(repo); }),
     r('POST', '/api/admin/points', async ({ body, headers }) => { await exiger(headers, ['ADMIN']); return creerPoint(repo, body); }),

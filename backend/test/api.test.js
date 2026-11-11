@@ -5,23 +5,24 @@ import { chargerDemo, HttpError } from '../src/logic.js';
 import { creerUtilisateur } from '../src/utilisateurs.js';
 import { signerJeton, verifierJeton } from '../src/auth.js';
 import { construireRoutes } from '../src/routes.js';
+import { creerFournisseurAviationstack, creerFournisseur } from '../src/vols.js';
 
 const SECRET = 'secret-de-test-assez-long-pour-etre-valide-123456';
 
 // Simule l'adaptateur Express : trouve la route, extrait les paramètres, appelle le handler.
-async function demarrer() {
+async function demarrer(options = {}) {
   const repo = new MemoryRepo();
   await chargerDemo(repo);
   await creerUtilisateur(repo, { nom: 'Admin Test', email: 'admin@test.cd', motDePasse: 'motdepasse-admin-1', role: 'ADMIN' });
   await creerUtilisateur(repo, { nom: 'Agent FIH', email: 'agent@test.cd', motDePasse: 'motdepasse-agent-1', role: 'AGENT', station: 'fih' });
-  const routes = construireRoutes(repo, { jwtSecret: SECRET, demoResetAutorise: true });
-  const call = async (method, url, { body = {}, token, query = {} } = {}) => {
+  const routes = construireRoutes(repo, { jwtSecret: SECRET, demoResetAutorise: true, ...options });
+  const call = async (method, url, { body = {}, token, query = {}, headers = {} } = {}) => {
     for (const r of routes) {
       if (r.method !== method) continue;
       const m = new RegExp('^' + r.path.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$').exec(url);
       if (!m) continue;
       try {
-        const json = await r.handler({ params: { ...m.groups }, body, query, headers: token ? { authorization: 'Bearer ' + token } : {} });
+        const json = await r.handler({ params: { ...m.groups }, body, query, headers: { ...headers, ...(token ? { authorization: 'Bearer ' + token } : {}) } });
         return { status: 200, json };
       } catch (e) {
         if (e instanceof HttpError) return { status: e.status, json: { erreur: e.message } };
@@ -218,4 +219,126 @@ test('points de scan GPS : gestion par l\'admin, trajet du bagage, carte en dire
   const carte = (await call('GET', '/api/admin/carte', { token: AD })).json;
   assert.equal(carte.find((p) => p.code === 'FIH-CHG').bagages, 3); // 2 VIP + 1 standard
   assert.equal(carte.reduce((n, p) => n + p.bagages, 0), 4); // le 5e bagage n'est pas encore scanné
+});
+
+// Réponse type d'aviationstack (les heures sont celles de l'aéroport).
+const reponseAviation = (delay = 0, status = 'scheduled') => ({
+  data: [{
+    flight_date: '2026-11-12', flight_status: status,
+    departure: { iata: 'FIH', scheduled: '2026-11-12T08:30:00+00:00', estimated: '2026-11-12T08:55:00+00:00', delay, terminal: 'A', gate: '4' },
+    arrival: { iata: 'FBM', scheduled: '2026-11-12T10:40:00+00:00' },
+    airline: { name: 'Air Congo' }, flight: { iata: 'ZY100' },
+  }],
+});
+
+test('vols automatiques : import, mise à jour des retards, erreurs du fournisseur', async () => {
+  let reponse = reponseAviation(0), appels = [];
+  const fetchFactice = async (url) => { appels.push(String(url)); return { json: async () => reponse }; };
+  const fournisseur = creerFournisseurAviationstack({ cle: 'CLE', fetchImpl: fetchFactice });
+  const { call, AD, AG } = await demarrer({ fournisseurVols: fournisseur });
+
+  assert.equal((await call('GET', '/api/admin/vols', { token: AG })).status, 403);
+  const liste0 = (await call('GET', '/api/admin/vols', { token: AD })).json;
+  assert.equal(liste0.actif, true);
+  assert.equal(liste0.vols.length, 2); // vols de démonstration
+
+  assert.equal((await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'pas un vol' } })).status, 400);
+  assert.equal((await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'zy100', date: '12/11/2026' } })).status, 400);
+
+  const imp = await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'zy100', date: '2026-11-12' } });
+  assert.equal(imp.status, 200);
+  assert.deepEqual([imp.json.numero, imp.json.depart, imp.json.arrivee, imp.json.heureDepart, imp.json.statut, imp.json.source], ['ZY100', 'FIH', 'FBM', '08:30', 'PREVU', 'API']);
+  assert.match(appels[0], /access_key=CLE.*flight_iata=ZY100.*flight_date=2026-11-12|flight_iata=ZY100/);
+
+  // Retard détecté à l'actualisation, sans doublon de vol
+  reponse = reponseAviation(25);
+  const sync = await call('POST', '/api/admin/vols/synchroniser', { token: AD });
+  assert.deepEqual(sync.json, { maj: 1, erreurs: [] });
+  const liste = (await call('GET', '/api/admin/vols', { token: AD })).json.vols;
+  const vol = liste.filter((v) => v.numero === 'ZY100');
+  assert.equal(vol.length, 1);
+  assert.equal(vol[0].statut, 'RETARDE');
+  assert.equal(vol[0].retardMin, 25);
+
+  // Aucun résultat / erreur d'API
+  reponse = { data: [] };
+  assert.equal((await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'ZY999', date: '2026-11-12' } })).status, 404);
+  reponse = { error: { code: 104, message: 'usage_limit_reached' } };
+  const err = await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'ZY100' } });
+  assert.equal(err.status, 502);
+  assert.match(err.json.erreur, /usage_limit_reached/);
+});
+
+test('vols automatiques : désactivés sans clé, et statut visible côté passager', async () => {
+  assert.equal(creerFournisseur({}), null);
+  assert.equal(creerFournisseur({ FLIGHT_API_KEY: 'x' }).nom, 'aviationstack');
+  assert.throws(() => creerFournisseur({ FLIGHT_API_KEY: 'x', FLIGHT_API_PROVIDER: 'inconnu' }));
+  const { call, AD, repo } = await demarrer();
+  assert.equal((await call('GET', '/api/admin/vols', { token: AD })).json.actif, false);
+  assert.equal((await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'ZY100' } })).status, 503);
+  const vol = await repo.findOne('vols', { numero: 'DEMO-101' });
+  await repo.update('vols', vol.id, { statut: 'RETARDE', retardMin: 40, date: '2026-11-12' });
+  const v = (await call('GET', '/api/suivi/ACG123', { query: { nom: 'Mbemba' } })).json;
+  assert.equal(v.vol.libelleStatut, 'Retardé');
+  assert.equal(v.vol.retardMin, 40);
+});
+
+test('lecteurs RFID : authentification par clé, passages enregistrés, relectures ignorées', async () => {
+  const CLE = 'cle-lecteur-de-test-0123456789abcdef';
+  const { call, repo, AD } = await demarrer({ cleLecteurRfid: CLE });
+  const sansCle = await call('POST', '/api/rfid/lecture', { body: { code: 'AC000000', point: 'FIH-TRI' } });
+  assert.equal(sansCle.status, 401);
+  const mauvaise = await call('POST', '/api/rfid/lecture', { body: { code: 'AC000000', point: 'FIH-TRI' }, headers: { 'x-lecteur-cle': 'autre' } });
+  assert.equal(mauvaise.status, 401);
+
+  // bagage VIP en attente : ACB456 n'est pas VIP, on crée un bagage pour la passagère VIP via le personnel
+  const res = await repo.findOne('reservations', { pnr: 'ACV777' });
+  const b = (await repo.find('bagages', { reservationId: res.id }))[0];
+  const h = { 'x-lecteur-cle': CLE };
+  const reLecture = await call('POST', '/api/rfid/lecture', { headers: h, body: { lectures: [{ code: b.code, point: 'FIH-TRI' }, { code: b.code, point: 'fih-sou' }, { code: 'AC999999', point: 'FIH-TRI' }, { code: b.code, point: 'XXX-1' }] } });
+  assert.equal(reLecture.status, 200);
+  const [r1, r2, r3, r4] = reLecture.json.resultats;
+  assert.equal(r1.ok, true); assert.equal(r1.ignore, true); // déjà passé par ce point : relecture sans erreur
+  assert.equal(r2.ok, true); assert.equal(r2.statut, 'ARRIVE'); // avance à l'étape suivante
+  assert.equal(r3.ok, false); // bagage inconnu
+  assert.equal(r4.ok, false); // point inconnu
+  const sc = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json.bagages.find((x) => x.code === b.code).scans.at(-1);
+  assert.equal(sc.source, 'RFID');
+  assert.equal(sc.agent, 'Portique FIH-SOU');
+  // désactivé sans clé configurée
+  const { call: call2 } = await demarrer();
+  assert.equal((await call2('POST', '/api/rfid/lecture', { body: { code: 'x', point: 'y' }, headers: h })).status, 503);
+});
+
+test('capacité de soute et revente de l\'espace libre', async () => {
+  const { call, AD, AG } = await demarrer();
+  assert.equal((await call('GET', '/api/admin/capacite', { token: AG })).status, 403);
+  const cap = (await call('GET', '/api/admin/capacite', { token: AD })).json;
+  const v101 = cap.vols.find((v) => v.numero === 'DEMO-101');
+  assert.equal(v101.capaciteKg, 150);
+  assert.equal(v101.fretKg, 20);
+  assert.equal(v101.recettesFretUsd, 120);
+  assert.equal(v101.libreKg, Math.round((150 - v101.bagagesKg - 20) * 100) / 100);
+  assert.equal(v101.potentielUsd, Math.round(v101.libreKg * 6 * 100) / 100);
+  assert.equal(cap.ventes.length, 1);
+
+  const vendre = (token, body) => call('POST', '/api/agent/ventes-espace', { token, body });
+  assert.equal((await vendre(undefined, { volId: v101.id, kg: 5, client: 'X Y' })).status, 401);
+  assert.equal((await vendre(AG, { volId: v101.id, kg: 5000, client: 'Gros client' })).status, 409); // trop lourd
+  assert.equal((await vendre(AG, { volId: v101.id, kg: -2, client: 'Gros client' })).status, 400);
+  assert.equal((await vendre(AG, { volId: v101.id, kg: 5, client: '' })).status, 400);
+  assert.equal((await vendre(AG, { volId: 'inconnu', kg: 5, client: 'Client' })).status, 404);
+  const ok = await vendre(AG, { volId: v101.id, kg: 10, client: 'Boutique Mode', prixUsdKg: 8 });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.montantUsd, 80);
+  assert.equal(ok.json.agent, 'Agent FIH');
+  const apres = (await call('GET', '/api/admin/capacite', { token: AD })).json.vols.find((v) => v.numero === 'DEMO-101');
+  assert.equal(apres.fretKg, 30);
+  assert.equal(apres.recettesFretUsd, 200);
+  assert.equal(apres.libreKg, Math.round((v101.libreKg - 10) * 100) / 100);
+
+  const maj = await call('PATCH', `/api/admin/vols/${v101.id}`, { token: AD, body: { capaciteKg: 400, prixReventeUsdKg: 5 } });
+  assert.equal(maj.json.capaciteKg, 400);
+  assert.equal((await call('PATCH', `/api/admin/vols/${v101.id}`, { token: AD, body: { capaciteKg: -1 } })).status, 400);
+  assert.equal((await call('PATCH', `/api/admin/vols/${v101.id}`, { token: AG, body: { capaciteKg: 400 } })).status, 403);
 });

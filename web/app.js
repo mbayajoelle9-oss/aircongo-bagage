@@ -14,6 +14,8 @@ const STATUTS_LITIGE = { OUVERT: 'Ouvert', EN_COURS: 'En cours', RESOLU: 'Résol
 
 const PAGES = [
   { id: 'dashboard', titre: 'Tableau de bord', ico: 'grille', admin: true },
+  { id: 'capacite', titre: 'Capacité & revente', ico: 'dollar', admin: true },
+  { id: 'vols', titre: 'Vols', ico: 'avion', admin: true },
   { id: 'carte', titre: 'Carte & points', ico: 'epingle', admin: true },
   { id: 'bagages', titre: 'Bagages', ico: 'bagage', admin: true },
   { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true },
@@ -44,7 +46,7 @@ async function naviguer() {
   menu(page.id);
   vue.innerHTML = '<div class="chargement">Chargement…</div>';
   try {
-    await ({ dashboard: vueDashboard, carte: vueCarte, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
+    await ({ dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
   } catch (e) {
     vue.innerHTML = `<div class="carte"><div class="erreur" style="margin:0">${esc(e.message)}</div></div>`;
   }
@@ -66,7 +68,8 @@ async function vueDashboard() {
     '<div class="carte"><h2>Activité récente</h2><ul class="fil" id="fil"></ul></div>';
 
   const charger = async () => {
-    const [s, a, b] = await Promise.all([api('GET', '/api/admin/stats'), api('GET', '/api/admin/alertes'), api('GET', '/api/admin/bagages')]);
+    const [s, a, b, cap] = await Promise.all([api('GET', '/api/admin/stats'), api('GET', '/api/admin/alertes'), api('GET', '/api/admin/bagages'), api('GET', '/api/admin/capacite')]);
+    const libre = cap.vols.reduce((n, v) => n + v.libreKg, 0), potentiel = cap.vols.reduce((n, v) => n + v.potentielUsd, 0), fret = cap.vols.reduce((n, v) => n + v.recettesFretUsd, 0);
     const p = s.parStatut;
     const circulation = ['ENREGISTRE', 'CHARGE', 'TRANSIT', 'ARRIVE'].reduce((n, k) => n + (p[k] ?? 0), 0);
     $('kpis').innerHTML = [
@@ -75,6 +78,8 @@ async function vueDashboard() {
       ['Alertes', s.alertes, s.alertes ? 'rouge' : 'vert'],
       ['Litiges ouverts', s.litigesOuverts, s.litigesOuverts ? 'jaune' : 'vert'],
       ['Recettes excédents', usd(s.recettesExcedentUsd), 'vert'],
+      ['Espace libre à revendre', `${Math.round(libre)} kg · ${usd(potentiel)}`, libre > 0 ? 'jaune' : ''],
+      ['Recettes fret', usd(fret), 'vert'],
     ].map(([t, v, c]) => `<div class="kpi ${c}"><span>${t}</span><b>${esc(v)}</b></div>`).join('');
 
     const ordre = [['PRE_ENREGISTRE', 'pre'], ['ENREGISTRE', ''], ['CHARGE', ''], ['TRANSIT', ''], ['ARRIVE', 'arr'], ['LIVRE', 'fin']];
@@ -95,7 +100,7 @@ async function vueDashboard() {
     $('maj').textContent = 'Mis à jour à ' + heure(new Date().toISOString());
   };
   await charger();
-  const t = setInterval(() => { if (!document.hidden) charger().catch(() => {}); }, 10000);
+  const t = setInterval(() => { if (!document.hidden) charger().catch(() => {}); }, 5000);
   surDepart(() => clearInterval(t));
 }
 
@@ -217,6 +222,116 @@ async function vueUtilisateurs() {
 }
 
 // ============================================================
+// Capacité de soute et revente de l'espace libre
+// ============================================================
+async function vueCapacite() {
+  const { vols, ventes } = await api('GET', '/api/admin/capacite');
+  const somme = (k) => vols.reduce((n, v) => n + v[k], 0);
+  vue.innerHTML =
+    entete('Capacité & revente', 'Chaque kilo libre en soute est une recette possible', '') +
+    `<div class="kpis">${[
+      ['Espace libre', `${Math.round(somme('libreKg'))} kg`, 'jaune'],
+      ['Potentiel de revente', usd(somme('potentielUsd')), 'jaune'],
+      ['Recettes fret', usd(somme('recettesFretUsd')), 'vert'],
+      ['Recettes excédents', usd(somme('recettesExcedentUsd')), 'vert'],
+    ].map(([t, v, c]) => `<div class="kpi ${c}"><span>${t}</span><b>${esc(v)}</b></div>`).join('')}</div>
+    <div class="carte"><div class="tableau"><table><thead><tr><th>Vol</th><th>Remplissage de la soute</th><th>Libre</th><th>Prix / kg</th><th>Potentiel</th><th>Fret vendu</th><th></th></tr></thead><tbody>${
+      vols.length ? vols.map((v) => {
+        const pb = v.capaciteKg ? (v.bagagesKg / v.capaciteKg) * 100 : 0, pf = v.capaciteKg ? (v.fretKg / v.capaciteKg) * 100 : 0;
+        return `<tr><td><b>${esc(v.numero)}</b><br><span class="muted petit">${esc(v.depart)} → ${esc(v.arrivee)} · ${esc(v.heureDepart ?? '')}</span></td>
+          <td style="min-width:220px"><div class="capa-barre" title="Bagages ${v.bagagesKg} kg · fret ${v.fretKg} kg"><i class="b" style="width:${Math.min(100, pb)}%"></i><i class="f" style="width:${Math.min(100 - Math.min(100, pb), pf)}%"></i></div><span class="muted petit">${v.bagagesKg} kg bagages (${v.nbBagages}) + ${v.fretKg} kg fret / ${v.capaciteKg} kg${v.capaciteDefinie ? '' : ' (capacité par défaut)'}</span></td>
+          <td><b>${v.libreKg} kg</b></td><td>${usd(v.prixReventeUsdKg)}</td><td>${usd(v.potentielUsd)}</td><td>${usd(v.recettesFretUsd)}</td>
+          <td style="white-space:nowrap"><button class="btn mini" data-vendre="${esc(v.id)}" ${v.libreKg <= 0 ? 'disabled' : ''}>Vendre</button> <button class="btn sec mini" data-regler="${esc(v.id)}">Régler</button></td></tr>`;
+      }).join('') : '<tr><td colspan="7" class="vide">Aucun vol. Importez un vol depuis la page Vols.</td></tr>'
+    }</tbody></table></div><p class="legende-carte"><span class="capa-leg b"></span> bagages passagers <span class="capa-leg f"></span> fret vendu <span class="capa-leg l"></span> espace libre</p></div>
+    <div class="carte"><h2>Ventes récentes</h2>${ventes.length ? `<div class="tableau"><table><thead><tr><th>Date</th><th>Vol</th><th>Client</th><th>Poids</th><th>Montant</th><th>Vendeur</th></tr></thead><tbody>${ventes.map((x) => `<tr><td>${dateHeure(x.ts)}</td><td>${esc(x.numeroVol)}</td><td>${esc(x.client)}</td><td>${x.kg} kg à ${usd(x.prixUsdKg)}</td><td><b>${usd(x.montantUsd)}</b></td><td>${esc(x.agent)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucune vente pour le moment.</p>'}</div>
+    <div class="carte"><h2>Comment l’espace libre devient une recette</h2><ul style="margin:6px 0 0;padding-left:20px;line-height:1.6"><li><b>Fret et colis de dernière minute :</b> chaque kilo libre se vend au comptoir ou en ligne avant le départ (bouton « Vendre »).</li><li><b>Excédent de bagages :</b> facturé aux passagers, avec −20 % en prépaiement pour désengorger les comptoirs.</li><li><b>Service VIP :</b> suivi RFID et alertes, une offre premium facturable.</li></ul><p class="muted petit" style="margin:10px 0 0">Prix et capacités de cette démonstration : à valider avec Air Congo (capacité réelle de soute par type d’avion).</p></div>`;
+
+  const vol = (id) => vols.find((v) => v.id === id);
+  document.querySelectorAll('[data-vendre]').forEach((b) => (b.onclick = () => {
+    const v = vol(b.dataset.vendre);
+    const d = ouvrirDialogue(`<h2>Vendre de l’espace · ${esc(v.numero)}</h2><p class="muted petit" style="margin:2px 0 0">${v.libreKg} kg disponibles sur ${esc(v.depart)} → ${esc(v.arrivee)}</p>
+      <form id="fV"><label class="champ">Client<input class="input" name="client" required minlength="2" maxlength="80" placeholder="Nom du client ou de l’entreprise"></label>
+      <div class="rang"><label class="champ">Poids (kg)<input class="input" name="kg" type="number" step="0.5" min="0.5" max="${v.libreKg}" required></label>
+      <label class="champ">Prix par kg ($)<input class="input" name="prix" type="number" step="0.5" min="0.5" value="${v.prixReventeUsdKg}" required></label></div>
+      <p id="tot" class="muted" style="margin:10px 0 0"></p><div id="eV" class="erreur" hidden></div>
+      <div class="actions"><button type="button" class="btn sec" id="ann">Annuler</button><button class="btn vert" type="submit">Encaisser la vente</button></div></form>`);
+    const f = d.querySelector('#fV');
+    const maj = () => (d.querySelector('#tot').textContent = f.kg.value && f.prix.value ? `Montant : ${usd(Number(f.kg.value) * Number(f.prix.value))}` : '');
+    f.kg.oninput = maj; f.prix.oninput = maj;
+    d.querySelector('#ann').onclick = () => d.close();
+    f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      try {
+        const r = await api('POST', '/api/agent/ventes-espace', { volId: v.id, kg: f.kg.value, client: f.client.value, prixUsdKg: f.prix.value });
+        d.close(); toast(`Vente enregistrée : ${usd(r.montantUsd)}`); vueCapacite();
+      } catch (e) { const el = d.querySelector('#eV'); el.textContent = e.message; el.hidden = false; }
+    };
+  }));
+  document.querySelectorAll('[data-regler]').forEach((b) => (b.onclick = () => {
+    const v = vol(b.dataset.regler);
+    const d = ouvrirDialogue(`<h2>Régler ${esc(v.numero)}</h2><p class="muted petit" style="margin:2px 0 0">Capacité réelle de soute pour ce vol et prix de revente.</p>
+      <form id="fR"><div class="rang"><label class="champ">Capacité (kg)<input class="input" name="cap" type="number" min="0" max="50000" step="10" value="${v.capaciteKg}" required></label>
+      <label class="champ">Prix de revente ($/kg)<input class="input" name="prix" type="number" min="0.5" max="200" step="0.5" value="${v.prixReventeUsdKg}" required></label></div>
+      <div id="eR" class="erreur" hidden></div><div class="actions"><button type="button" class="btn sec" id="ann">Annuler</button><button class="btn" type="submit">Enregistrer</button></div></form>`);
+    d.querySelector('#ann').onclick = () => d.close();
+    d.querySelector('#fR').onsubmit = async (ev) => {
+      ev.preventDefault();
+      try { await api('PATCH', `/api/admin/vols/${encodeURIComponent(v.id)}`, { capaciteKg: ev.target.cap.value, prixReventeUsdKg: ev.target.prix.value }); d.close(); toast('Vol mis à jour'); vueCapacite(); }
+      catch (e) { const el = d.querySelector('#eR'); el.textContent = e.message; el.hidden = false; }
+    };
+  }));
+}
+
+// ============================================================
+// Vols (récupération automatique)
+// ============================================================
+const CLASSE_VOL = { PREVU: 'bleu', RETARDE: 'rouge', EN_VOL: 'bleu', ATTERRI: 'vert' };
+const jourFr = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) : '—');
+
+async function vueVols() {
+  const { actif, fournisseur, vols } = await api('GET', '/api/admin/vols');
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  vue.innerHTML =
+    entete('Vols', 'Horaires, statuts et retards récupérés automatiquement', actif ? `<button class="btn sec" id="sync">${icone('avion')} Actualiser les vols</button>` : '') +
+    (actif
+      ? `<div class="carte"><h2>Ajouter un vol</h2><p class="muted petit" style="margin:0 0 6px">Tapez le numéro de vol : les aéroports, horaires et statut sont récupérés automatiquement (source : ${esc(fournisseur)}).</p>
+        <form id="fVol" class="rang" style="align-items:end"><label class="champ" style="flex:1">Numéro de vol<input class="input" name="numero" required placeholder="Ex. KQ554" style="text-transform:uppercase"></label>
+        <label class="champ">Date<input class="input" type="date" name="date" value="${aujourdhui}"></label><button class="btn" type="submit">Rechercher</button></form>
+        <div id="resVol"></div></div>`
+      : `<div class="carte"><h2>Récupération automatique non activée</h2><p style="margin:6px 0 0">Pour importer les vols automatiquement, ajoutez dans Render (Environment) la variable <b class="mono">FLIGHT_API_KEY</b> avec votre clé aviationstack, puis redéployez. Les vols saisis ou de démonstration continuent de fonctionner.</p></div>`) +
+    `<div class="carte"><div class="tableau"><table><thead><tr><th>Vol</th><th>Date</th><th>Trajet</th><th>Départ</th><th>Statut</th><th>Passagers</th><th>Source</th></tr></thead><tbody>${
+      vols.length ? vols.map((v) => `<tr><td><b>${esc(v.numero)}</b></td><td>${jourFr(v.date)}</td><td>${esc(v.depart)} → ${esc(v.arrivee)}</td><td>${esc(v.heureDepart ?? '—')}${v.retardMin > 0 ? ` <span class="muted petit">(vers ${esc(v.heureDepartEstimee ?? '?')})</span>` : ''}</td><td>${v.libelleStatut ? `<span class="pill ${CLASSE_VOL[v.statut] ?? 'rouge'}">${esc(v.libelleStatut)}${v.retardMin > 0 ? ` +${v.retardMin} min` : ''}</span>` : '<span class="muted">—</span>'}</td><td>${v.passagers}</td><td>${v.source === 'API' ? `API${v.majLe ? ' · ' + heure(v.majLe) : ''}` : 'Démo / saisi'}</td></tr>`).join('') : '<tr><td colspan="7" class="vide">Aucun vol.</td></tr>'
+    }</tbody></table></div></div>`;
+
+  if (!actif) return;
+  $('sync').onclick = async () => {
+    $('sync').disabled = true;
+    try {
+      const r = await api('POST', '/api/admin/vols/synchroniser');
+      toast(`${r.maj} vol(s) actualisé(s)${r.erreurs.length ? ` · ${r.erreurs.length} erreur(s) : ${r.erreurs[0]}` : ''}`, r.erreurs.length ? 'warn' : 'ok');
+      vueVols();
+    } catch (e) { toast(e.message, 'err'); $('sync').disabled = false; }
+  };
+  $('fVol').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = ev.target, zone = $('resVol');
+    zone.innerHTML = '<p class="muted">Recherche en cours…</p>';
+    try {
+      const trouves = await api('GET', `/api/admin/vols/recherche?numero=${encodeURIComponent(f.numero.value)}&date=${encodeURIComponent(f.date.value)}`);
+      zone.innerHTML = trouves.length
+        ? trouves.map((v, i) => `<div class="fiche-bagage" style="margin-top:12px"><div class="haut"><div><b>${esc(v.numero)}</b> ${v.compagnie ? '· ' + esc(v.compagnie) : ''}<br><span class="muted petit">${esc(v.depart)} ${esc(v.heureDepart ?? '')} → ${esc(v.arrivee)} ${esc(v.heureArrivee ?? '')} · ${jourFr(v.date)}${v.terminal ? ' · Terminal ' + esc(v.terminal) : ''}</span></div><button class="btn mini" data-imp="${i}">Importer ce vol</button></div></div>`).join('')
+        : '<p class="muted">Aucun vol trouvé pour ce numéro et cette date (selon le forfait, seuls les vols du jour peuvent être disponibles).</p>';
+      zone.querySelectorAll('[data-imp]').forEach((b) => (b.onclick = async () => {
+        const v = trouves[Number(b.dataset.imp)];
+        try { await api('POST', '/api/admin/vols/importer', { numero: v.numero, date: v.date }); toast(`Vol ${v.numero} importé`); vueVols(); }
+        catch (e) { toast(e.message, 'err'); }
+      }));
+    } catch (e) { zone.innerHTML = `<div class="erreur">${esc(e.message)}</div>`; }
+  };
+}
+
+// ============================================================
 // Carte & points de scan (administrateur)
 // ============================================================
 const NOMS_ETAPES = { ENREGISTRE: 'Enregistrement', CHARGE: 'Chargement', TRANSIT: 'Transit', ARRIVE: 'Arrivée', LIVRE: 'Remise' };
@@ -250,7 +365,7 @@ async function vueCarte() {
   $('rech').onkeydown = (e) => { if (e.key === 'Enter') $('tracer').click(); };
   $('effacer').onclick = async () => { trace = []; $('rech').value = ''; $('msgCarte').textContent = ''; $('effacer').hidden = true; premiere = true; await dessiner(); };
   await charger(); await dessiner();
-  const t = setInterval(async () => { if (document.hidden || document.querySelector('dialog[open]')) return; try { await charger(); await dessiner(); } catch { /* réessai au prochain tour */ } }, 15000);
+  const t = setInterval(async () => { if (document.hidden || document.querySelector('dialog[open]')) return; try { await charger(); await dessiner(); } catch { /* réessai au prochain tour */ } }, 10000);
   surDepart(() => { clearInterval(t); if (el._map) el._map.remove(); });
 }
 

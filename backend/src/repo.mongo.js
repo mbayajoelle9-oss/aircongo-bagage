@@ -8,7 +8,7 @@ const opts = { versionKey: false };
 const idChamp = () => ({ type: String, required: true, unique: true });
 
 const schemas = {
-  vols: new Schema({ id: idChamp(), numero: String, depart: String, arrivee: String, heureDepart: String }, opts),
+  vols: new Schema({ id: idChamp(), numero: String, date: String, compagnie: String, depart: String, arrivee: String, heureDepart: String, heureArrivee: String, heureDepartEstimee: String, capaciteKg: Number, prixReventeUsdKg: Number, statut: String, retardMin: Number, terminal: String, porte: String, source: String, majLe: String }, opts),
   reservations: new Schema(
     { id: idChamp(), pnr: { type: String, required: true, unique: true }, nom: String, classe: String, volId: String, telephone: String },
     opts,
@@ -49,6 +49,10 @@ const schemas = {
   ),
   points: new Schema(
     { id: idChamp(), code: { type: String, unique: true }, nom: String, station: String, etape: String, lat: Number, lon: Number, actif: Boolean, rfid: Boolean, positionDemo: Boolean },
+    opts,
+  ),
+  ventesEspace: new Schema(
+    { id: idChamp(), volId: { type: String, index: true }, numeroVol: String, kg: Number, prixUsdKg: Number, montantUsd: Number, client: String, type: String, agent: String, ts: String },
     opts,
   ),
   notifications: new Schema(

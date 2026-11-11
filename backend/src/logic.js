@@ -101,7 +101,7 @@ export async function vueReservation(repo, reservation) {
     notifications: notifications.map(({ code, etape, station, canal, message, ts }) => ({ code, etape, station, canal, message, ts })),
     nom: reservation.nom,
     classe: reservation.classe,
-    vol,
+    vol: { ...vol, libelleStatut: ({ PREVU: 'Prévu', RETARDE: 'Retardé', EN_VOL: 'En vol', ATTERRI: 'Atterri', ANNULE: 'Annulé', INCIDENT: 'Incident', DEROUTE: 'Dérouté' })[vol.statut] ?? null },
     bagages,
     excedent: await calculExcedent(repo, reservation),
   };
@@ -396,9 +396,9 @@ export async function litiges(repo) {
 // ---- Données de démonstration (fictives) ----
 export async function chargerDemo(repo) {
   await peuplerPoints(repo);
-  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements', 'notifications']); // les comptes utilisateurs sont conservés
-  const vol1 = await repo.insert('vols', { numero: 'DEMO-101', depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30' });
-  const vol2 = await repo.insert('vols', { numero: 'DEMO-205', depart: 'FIH', arrivee: 'GOM', heureDepart: '11:15' });
+  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements', 'notifications', 'ventesEspace']); // les comptes utilisateurs sont conservés
+  const vol1 = await repo.insert('vols', { numero: 'DEMO-101', depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30', capaciteKg: 150 });
+  const vol2 = await repo.insert('vols', { numero: 'DEMO-205', depart: 'FIH', arrivee: 'GOM', heureDepart: '11:15', capaciteKg: 100 });
   await repo.insert('reservations', { pnr: 'ACG123', nom: 'Mbemba Joseph', classe: 'ECO', volId: vol1.id, telephone: '+243 000 000 001' });
   await repo.insert('reservations', { pnr: 'ACV777', nom: 'Kabila Sarah', classe: 'VIP', volId: vol1.id, telephone: '+243 000 000 002', canalAlerte: 'WHATSAPP' });
   await repo.insert('reservations', { pnr: 'ACB456', nom: 'Tshimanga Patrick', classe: 'BUSINESS', volId: vol2.id, telephone: '+243 000 000 003' });
@@ -421,4 +421,5 @@ export async function chargerDemo(repo) {
     await enregistrerScan(repo, { code: b.code, pointId: TRI, agent: 'Portique RFID', ts: il(16) });
     await enregistrerScan(repo, { code: b.code, pointId: CHG, agent: 'Portique RFID', ts: il(12) });
   }
+  await repo.insert('ventesEspace', { volId: vol1.id, numeroVol: vol1.numero, kg: 20, prixUsdKg: 6, montantUsd: 120, client: 'Pharmacie Centrale (démo)', type: 'FRET', agent: 'Agent A', ts: il(30) });
 }

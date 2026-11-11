@@ -47,3 +47,26 @@ Vérifiez web/config.js : API_URL = https://aircongo-bagage.onrender.com
 - Les points créés au premier démarrage sont des positions de DÉMONSTRATION près de chaque aéroport (marquées « à confirmer sur place ») : à remplacer par les vraies coordonnées avant la présentation si possible.
 - Le passager et l'administrateur voient le même chemin sur la carte. Un bagage déjà scanné AVANT cette mise à jour n'a pas de coordonnées : il n'apparaît pas sur la carte (rechargez la démo : POST /api/admin/demo/reset, ou « Réinitialiser » avec SEED_DEMO=true).
 - La carte utilise Leaflet (chargé depuis unpkg.com) et les tuiles de tile.openstreetmap.org. Pour ne pas dépendre de unpkg : copiez leaflet.js, leaflet.css et le dossier images dans web/vendor/ (npm pack leaflet, puis dossier dist). Pour une utilisation commerciale intensive, prévoir un fournisseur de tuiles dédié (la politique d'usage d'OpenStreetMap limite le trafic).
+
+## Vols automatiques (facultatif)
+1. Créez un compte gratuit sur aviationstack.com et copiez votre clé API.
+2. Dans Render > Environment, ajoutez FLIGHT_API_KEY (et FLIGHT_API_PROVIDER=aviationstack). Redéployez.
+3. Dans l'application : Vols > tapez un numéro de vol (ex. KQ554) et une date > Rechercher > Importer.
+4. « Actualiser les vols » met à jour statuts et retards ; FLIGHT_SYNC_MINUTES=30 le fait automatiquement (attention au quota : 100 requêtes/mois en gratuit, forfait payant pour l'usage réel).
+Limites : le forfait gratuit est en HTTP et limité aux vols du moment (le filtre par date demande un forfait payant). Le numéro de réservation (PNR) et ses passagers viennent toujours du système d'Air Congo : un vol importé n'a aucun passager tant que les réservations ne lui sont pas rattachées.
+
+## Lecteurs RFID (portiques VIP) – contrat d'intégration
+Le fabricant ou l'intégrateur des lecteurs envoie les lectures de puces à l'API (aucun compte utilisateur) :
+
+    POST https://aircongo-bagage.onrender.com/api/rfid/lecture
+    Header : x-lecteur-cle: <RFID_READER_KEY>
+    Corps  : { "lectures": [ { "code": "AC123456", "point": "FIH-TRI" } ] }      (jusqu'à 200 lectures par envoi)
+
+- code = contenu de la puce = code du bagage (programmer la puce avec ce code à l'émission de l'étiquette).
+- point = code du point de scan (visible dans Carte & points : FIH-TRI, FIH-CHG…). Cochez « Portique RFID » sur ces points.
+- Réponse : { "resultats": [ { "code", "ok", "statut" | "ignore" | "erreur" } ] }. Une relecture de la même puce au même point est ignorée sans erreur.
+- Configuration : variable Render RFID_READER_KEY (24 caractères minimum, secrète ; même générateur que JWT_SECRET). Sans elle, l'endpoint répond 503.
+Ces lectures apparaissent en direct (actualisation toutes les 5 s) sur le tableau de bord, la carte et le portail passager, avec la mention RFID.
+
+## Capacité de soute et revente de l'espace libre
+Page « Capacité & revente » : par vol, capacité de soute (à régler : le défaut 1200 kg est fictif), bagages chargés, fret vendu, espace libre, prix de revente par kg et potentiel de recette. Bouton « Vendre » pour encaisser une vente de fret (agents et administrateurs). Les prix de démonstration (6 $/kg) sont à valider avec Air Congo.

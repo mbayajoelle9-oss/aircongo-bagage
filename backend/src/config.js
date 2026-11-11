@@ -1,5 +1,7 @@
 // Paramètres de DÉMO : à remplacer par les règles réelles d'Air Congo.
 export const CONFIG = {
+  capaciteSouteKg: 1200, // capacité de soute pour bagages/fret par défaut (à régler par vol)
+  tarifReventeUsdKg: 6, // prix de revente de l'espace libre (à valider avec Air Congo)
   // Franchise de bagages en soute (kg) selon la classe
   franchiseKg: { ECO: 23, BUSINESS: 32, VIP: 40 },
   // Tarif d'excédent au comptoir (USD par kg)
