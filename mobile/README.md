@@ -6,7 +6,7 @@ visible dans l'application sans reconstruire l'APK.
 
 ## Construire l'APK (≈ 15 min, aucun Android Studio nécessaire)
 
-1. Ouvrez `config.js` et mettez l'adresse de votre site Vercel (ex. `https://xxx-bagages.vercel.app`).
+1. Ouvrez `config.js` et mettez l'adresse de votre site Vercel (déjà réglée sur `https://aircongo-bagages.vercel.app`).
 2. Dans ce dossier `mobile`, avec un compte Expo :
 
 ```
