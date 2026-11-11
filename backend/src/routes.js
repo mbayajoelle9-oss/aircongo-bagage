@@ -25,10 +25,11 @@ import {
   carteEnDirect,
 } from './logic.js';
 import { connexion, authentifier, vueUtilisateur, creerUtilisateur, listerUtilisateurs, modifierUtilisateur } from './utilisateurs.js';
-import { CONFIG, STATIONS } from './config.js';
+import { CONFIG, STATIONS, OPERATEURS_MM } from './config.js';
 import { capaciteVols, configurerVol, vendreEspace, listerVentes } from './capacite.js';
 import { cleLecteurValide, traiterLectures } from './rfid.js';
-import { rechercherVols, importerVol, synchroniserVols, listerVols } from './vols.js';
+import { rechercherVols, importerVol, importerCompagnie, synchroniserVols, listerVols } from './vols.js';
+import { radarVols, ficheVol, chercherCompagnies, acheterEspace } from './radar.js';
 
 export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, fournisseurVols = null, cleLecteurRfid = null }) {
   const exiger = (headers, roles) => authentifier(repo, jwtSecret, headers, roles);
@@ -112,6 +113,7 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, f
     }),
     r('GET', '/api/admin/vols/recherche', async ({ query, headers }) => { await exiger(headers, ['ADMIN']); return rechercherVols(fournisseurVols, query); }),
     r('POST', '/api/admin/vols/importer', async ({ body, headers }) => { await exiger(headers, ['ADMIN']); return importerVol(repo, fournisseurVols, body); }),
+    r('POST', '/api/admin/vols/importer-compagnie', async ({ body, headers }) => { await exiger(headers, ['ADMIN']); return importerCompagnie(repo, fournisseurVols, body); }),
     r('POST', '/api/admin/vols/synchroniser', async ({ headers }) => { await exiger(headers, ['ADMIN']); return synchroniserVols(repo, fournisseurVols); }),
     // Lecteurs RFID : authentifiés par une clé partagée (en-tête x-lecteur-cle), pas par un compte utilisateur.
     r('POST', '/api/rfid/lecture', async ({ body, headers }) => {
@@ -156,7 +158,16 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, f
       return { ok: true };
     }),
 
+    // ----- Radar des vols : public (compteurs et espace libre) ; détail des bagages réservé au personnel -----
+    r('GET', '/api/radar', async ({ query }) => radarVols(repo, { compagnie: query.compagnie })),
+    r('GET', '/api/radar/compagnies', async ({ query }) => chercherCompagnies(repo, query.q)),
+    r('GET', '/api/radar/vols/:id', async ({ params }) => ficheVol(repo, params.id)),
+    r('GET', '/api/agent/radar/vols/:id', async ({ params, headers }) => { await exiger(headers, PERSONNEL); return ficheVol(repo, params.id, { avecBagages: true }); }),
+    r('POST', '/api/espace/acheter', async ({ body }) => acheterEspace(repo, body ?? {})),
+
     r('GET', '/api/config', async () => ({
+      operateursMobileMoney: OPERATEURS_MM,
+      achatMaxKg: CONFIG.achatMaxKg,
       franchiseKg: CONFIG.franchiseKg,
       tarifExcedentUsd: CONFIG.tarifExcedentUsd,
       remisePrepaiement: CONFIG.remisePrepaiement,

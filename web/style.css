@@ -259,3 +259,28 @@ textarea.input { resize: vertical; }
 .capa-barre { display: flex; height: 12px; border-radius: 6px; background: #e3e9f0; overflow: hidden; margin-bottom: 5px; }
 .capa-barre .b, .capa-leg.b { background: var(--bleu); } .capa-barre .f, .capa-leg.f { background: var(--jaune); }
 .capa-leg { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 12px; } .capa-leg.l { background: #e3e9f0; }
+
+/* ---- Radar des vols ---- */
+.radar-recherche { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.radar-recherche .input { flex: 1; min-width: 200px; margin-top: 0; }
+.puces { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.puce { border: 1px solid var(--bord); background: #fff; color: var(--marine); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.puce:hover { background: var(--bleu-pale); }
+.radar-grille { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+.radar-carte, .radar-panneau { background: #fff; border: 1px solid var(--bord); border-radius: 14px; padding: 12px 14px; }
+.radar-carte .osm { margin-top: 0; }
+.radar-panneau { max-height: 660px; overflow: auto; }
+.radar-panneau h2 { margin: 0 0 6px; font-size: 18px; }
+.radar-panneau h3 { margin: 0 0 6px; font-size: 14px; color: var(--marine); }
+.pastille { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin: 0 4px 0 10px; }
+.avion { width: 36px; height: 36px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .45)); transition: transform .3s; cursor: pointer; }
+.avion.choisi { filter: drop-shadow(0 0 6px #f6c21c) drop-shadow(0 0 2px #000); }
+.vol-carte { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid var(--bord); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font: inherit; cursor: pointer; }
+.vol-carte:hover { background: var(--bleu-pale); }
+.vol-carte .haut { display: flex; justify-content: space-between; align-items: center; }
+.soute { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--bord); }
+.soute.vente { background: var(--vert-pale); border: 1px solid #bfe5cf; border-radius: 12px; padding: 12px; }
+.total { margin: 12px 0 8px; font-size: 16px; }
+.recu { background: var(--vert-pale); border: 1px solid #bfe5cf; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+@media (max-width: 1000px) { .radar-grille { grid-template-columns: 1fr; } .radar-panneau { max-height: none; } }
+.radar-page { max-width: 1280px; margin: 0 auto; padding: 18px 14px 50px; }

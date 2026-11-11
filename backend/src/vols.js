@@ -2,6 +2,7 @@
 // Fournisseur géré : aviationstack (clé gratuite : 100 requêtes/mois). D'autres fournisseurs (Flightradar24 API,
 // AeroDataBox…) se branchent en ajoutant une fonction qui renvoie le même format normalisé.
 import { HttpError } from './logic.js';
+import { COMPAGNIES } from './config.js';
 
 const STATUTS_API = {
   scheduled: 'PREVU', active: 'EN_VOL', landed: 'ATTERRI', cancelled: 'ANNULE', incident: 'INCIDENT', diverted: 'DEROUTE',
@@ -60,6 +61,11 @@ export function creerFournisseurAviationstack({ cle, url = 'http://api.aviations
       }
       const vols = data.map(normaliserAviationstack).filter(Boolean);
       return date ? vols.filter((v) => v.date === date) : vols;
+    },
+    // Tous les vols d'une compagnie (par code IATA si on le connaît, sinon par nom).
+    async rechercherCompagnie({ nom, code }) {
+      const data = await appeler({ limit: '25', ...(code ? { airline_iata: code } : { airline_name: nom }) });
+      return data.map(normaliserAviationstack).filter(Boolean);
     },
   };
 }
@@ -125,4 +131,16 @@ export async function listerVols(repo) {
   const reservations = await repo.find('reservations');
   return l.map((v) => ({ ...v, libelleStatut: LIBELLES_VOL[v.statut] ?? null, passagers: reservations.filter((r) => r.volId === v.id).length }))
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (a.heureDepart ?? '').localeCompare(b.heureDepart ?? ''));
+}
+
+// Importe les vols d'une compagnie à partir de son nom (ex. « Kenya Airways ») : plus simple que de retenir un numéro de vol.
+export async function importerCompagnie(repo, fournisseur, { compagnie }) {
+  const nom = String(compagnie ?? '').trim();
+  if (nom.length < 2 || nom.length > 60) throw new HttpError(400, 'Nom de compagnie requis (2 à 60 caractères)');
+  const connue = COMPAGNIES.find((c) => c.nom.toLowerCase() === nom.toLowerCase());
+  const trouves = await exiger(fournisseur).rechercherCompagnie({ nom: connue?.nom ?? nom, code: connue?.code ?? null });
+  if (!trouves.length) throw new HttpError(404, `Aucun vol trouvé pour « ${nom} »`);
+  const vols = [];
+  for (const v of trouves) vols.push(await enregistrerVol(repo, { ...v, compagnie: v.compagnie ?? connue?.nom ?? nom }));
+  return { importes: vols.length, vols };
 }

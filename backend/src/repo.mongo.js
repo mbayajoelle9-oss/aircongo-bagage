@@ -8,7 +8,7 @@ const opts = { versionKey: false };
 const idChamp = () => ({ type: String, required: true, unique: true });
 
 const schemas = {
-  vols: new Schema({ id: idChamp(), numero: String, date: String, compagnie: String, depart: String, arrivee: String, heureDepart: String, heureArrivee: String, heureDepartEstimee: String, capaciteKg: Number, prixReventeUsdKg: Number, statut: String, retardMin: Number, terminal: String, porte: String, source: String, majLe: String }, opts),
+  vols: new Schema({ id: idChamp(), numero: String, date: String, compagnie: String, depart: String, arrivee: String, heureDepart: String, heureArrivee: String, heureDepartEstimee: String, departTs: String, arriveeTs: String, capaciteKg: Number, prixReventeUsdKg: Number, statut: String, retardMin: Number, terminal: String, porte: String, source: String, majLe: String }, opts),
   reservations: new Schema(
     { id: idChamp(), pnr: { type: String, required: true, unique: true }, nom: String, classe: String, volId: String, telephone: String },
     opts,
@@ -52,7 +52,7 @@ const schemas = {
     opts,
   ),
   ventesEspace: new Schema(
-    { id: idChamp(), volId: { type: String, index: true }, numeroVol: String, kg: Number, prixUsdKg: Number, montantUsd: Number, client: String, type: String, agent: String, ts: String },
+    { id: idChamp(), volId: { type: String, index: true }, numeroVol: String, kg: Number, prixUsdKg: Number, montantUsd: Number, client: String, type: String, agent: String, telephone: String, operateur: String, reference: String, paiement: String, ts: String },
     opts,
   ),
   notifications: new Schema(

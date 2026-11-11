@@ -1,3 +1,4 @@
+import { lancerRadar } from '/radar.js';
 import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, qrImage, zoneCarte, montrerCarte, chargerStations, STATUTS } from '/common.js';
 
 const moi = session.user;
@@ -13,6 +14,7 @@ const TYPES_LITIGE = { PERDU: 'Perdu', ENDOMMAGE: 'Endommagé', RETARDE: 'Retard
 const STATUTS_LITIGE = { OUVERT: 'Ouvert', EN_COURS: 'En cours', RESOLU: 'Résolu' };
 
 const PAGES = [
+  { id: 'radar', titre: 'Radar des vols', ico: 'avion', admin: false },
   { id: 'dashboard', titre: 'Tableau de bord', ico: 'grille', admin: true },
   { id: 'capacite', titre: 'Capacité & revente', ico: 'dollar', admin: true },
   { id: 'vols', titre: 'Vols', ico: 'avion', admin: true },
@@ -21,7 +23,7 @@ const PAGES = [
   { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true },
   { id: 'utilisateurs', titre: 'Utilisateurs', ico: 'equipe', admin: true },
   { id: 'scanner', titre: 'Scanner', ico: 'scan', admin: false },
-].filter((p) => EST_ADMIN || !p.admin);
+].filter((p) => EST_ADMIN || !p.admin).sort((a, b) => (EST_ADMIN ? 0 : (a.id === 'radar') - (b.id === 'radar')));
 
 let nettoyages = [];
 const surDepart = (fn) => nettoyages.push(fn);
@@ -46,7 +48,7 @@ async function naviguer() {
   menu(page.id);
   vue.innerHTML = '<div class="chargement">Chargement…</div>';
   try {
-    await ({ dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
+    await ({ radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
   } catch (e) {
     vue.innerHTML = `<div class="carte"><div class="erreur" style="margin:0">${esc(e.message)}</div></div>`;
   }
@@ -284,6 +286,16 @@ async function vueCapacite() {
 }
 
 // ============================================================
+// Radar des vols (carte type Flightradar : bagages en vol, espace libre au sol)
+// ============================================================
+async function vueRadar() {
+  vue.innerHTML = entete('Radar des vols', 'Cliquez sur un avion : bagages à bord s’il vole, espace libre en soute s’il est au sol');
+  const zone = document.createElement('div');
+  vue.appendChild(zone);
+  surDepart(await lancerRadar(zone, { personnel: true }));
+}
+
+// ============================================================
 // Vols (récupération automatique)
 // ============================================================
 const CLASSE_VOL = { PREVU: 'bleu', RETARDE: 'rouge', EN_VOL: 'bleu', ATTERRI: 'vert' };
@@ -295,10 +307,12 @@ async function vueVols() {
   vue.innerHTML =
     entete('Vols', 'Horaires, statuts et retards récupérés automatiquement', actif ? `<button class="btn sec" id="sync">${icone('avion')} Actualiser les vols</button>` : '') +
     (actif
-      ? `<div class="carte"><h2>Ajouter un vol</h2><p class="muted petit" style="margin:0 0 6px">Tapez le numéro de vol : les aéroports, horaires et statut sont récupérés automatiquement (source : ${esc(fournisseur)}).</p>
-        <form id="fVol" class="rang" style="align-items:end"><label class="champ" style="flex:1">Numéro de vol<input class="input" name="numero" required placeholder="Ex. KQ554" style="text-transform:uppercase"></label>
+      ? `<div class="carte"><h2>Importer les vols d’une compagnie</h2><p class="muted petit" style="margin:0 0 6px">Tapez le nom de la compagnie (ex. Kenya Airways) : ses vols, horaires et statuts sont récupérés automatiquement (source : ${esc(fournisseur)}) et apparaissent sur le radar.</p>
+        <form id="fCie" class="rang" style="align-items:end"><label class="champ" style="flex:1">Compagnie<input class="input" name="compagnie" list="listeCies" required placeholder="Ex. Kenya Airways" autocomplete="off"><datalist id="listeCies"></datalist></label><button class="btn" type="submit">Importer ses vols</button></form></div>
+        <details class="carte"><summary style="cursor:pointer;font-weight:600">Chercher un numéro de vol précis</summary>
+        <form id="fVol" class="rang" style="align-items:end"><label class="champ" style="flex:1">Numéro de vol<input class="input" name="numero" placeholder="Ex. KQ554" style="text-transform:uppercase"></label>
         <label class="champ">Date<input class="input" type="date" name="date" value="${aujourdhui}"></label><button class="btn" type="submit">Rechercher</button></form>
-        <div id="resVol"></div></div>`
+        <div id="resVol"></div></details>`
       : `<div class="carte"><h2>Récupération automatique non activée</h2><p style="margin:6px 0 0">Pour importer les vols automatiquement, ajoutez dans Render (Environment) la variable <b class="mono">FLIGHT_API_KEY</b> avec votre clé aviationstack, puis redéployez. Les vols saisis ou de démonstration continuent de fonctionner.</p></div>`) +
     `<div class="carte"><div class="tableau"><table><thead><tr><th>Vol</th><th>Date</th><th>Trajet</th><th>Départ</th><th>Statut</th><th>Passagers</th><th>Source</th></tr></thead><tbody>${
       vols.length ? vols.map((v) => `<tr><td><b>${esc(v.numero)}</b></td><td>${jourFr(v.date)}</td><td>${esc(v.depart)} → ${esc(v.arrivee)}</td><td>${esc(v.heureDepart ?? '—')}${v.retardMin > 0 ? ` <span class="muted petit">(vers ${esc(v.heureDepartEstimee ?? '?')})</span>` : ''}</td><td>${v.libelleStatut ? `<span class="pill ${CLASSE_VOL[v.statut] ?? 'rouge'}">${esc(v.libelleStatut)}${v.retardMin > 0 ? ` +${v.retardMin} min` : ''}</span>` : '<span class="muted">—</span>'}</td><td>${v.passagers}</td><td>${v.source === 'API' ? `API${v.majLe ? ' · ' + heure(v.majLe) : ''}` : 'Démo / saisi'}</td></tr>`).join('') : '<tr><td colspan="7" class="vide">Aucun vol.</td></tr>'
@@ -312,6 +326,17 @@ async function vueVols() {
       toast(`${r.maj} vol(s) actualisé(s)${r.erreurs.length ? ` · ${r.erreurs.length} erreur(s) : ${r.erreurs[0]}` : ''}`, r.erreurs.length ? 'warn' : 'ok');
       vueVols();
     } catch (e) { toast(e.message, 'err'); $('sync').disabled = false; }
+  };
+  api('GET', '/api/radar/compagnies', undefined, { auth: false }).then((l) => { $('listeCies').innerHTML = l.map((c) => `<option value="${esc(c.nom)}"></option>`).join(''); }).catch(() => {});
+  $('fCie').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const bouton = ev.target.querySelector('button');
+    bouton.disabled = true; bouton.textContent = 'Import en cours…';
+    try {
+      const r = await api('POST', '/api/admin/vols/importer-compagnie', { compagnie: ev.target.compagnie.value });
+      toast(`${r.importes} vol(s) importé(s)`);
+      vueVols();
+    } catch (e) { toast(e.message, 'err'); bouton.disabled = false; bouton.textContent = 'Importer ses vols'; }
   };
   $('fVol').onsubmit = async (ev) => {
     ev.preventDefault();

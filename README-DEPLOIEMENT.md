@@ -70,3 +70,13 @@ Ces lectures apparaissent en direct (actualisation toutes les 5 s) sur le tablea
 
 ## Capacité de soute et revente de l'espace libre
 Page « Capacité & revente » : par vol, capacité de soute (à régler : le défaut 1200 kg est fictif), bagages chargés, fret vendu, espace libre, prix de revente par kg et potentiel de recette. Bouton « Vendre » pour encaisser une vente de fret (agents et administrateurs). Les prix de démonstration (6 $/kg) sont à valider avec Air Congo.
+
+## Radar des vols (style Flightradar)
+
+- **Page publique** `/radar.html` (sans connexion) et **page « Radar des vols »** dans l'application du personnel.
+- Les avions sont placés sur la carte d'après les horaires (position calculée sur le grand cercle départ → arrivée ; ce n'est pas du suivi GPS réel).
+  Cliquer un avion **en vol** : bagages à bord (noms et codes réservés au personnel). Cliquer un avion **au sol** : espace libre en soute et achat par Mobile Money.
+- **Recherche par nom de compagnie** (Air Congo, Kenya Airways…) ; page *Vols* : « Importer les vols d'une compagnie » (nécessite `FLIGHT_API_KEY`).
+- Les aéroports hors réseau Air Congo sont dans `backend/src/config.js` (`AEROPORTS`) ; ajoutez-en si un vol importé n'apparaît pas sur la carte.
+- **Mobile Money : paiement SIMULÉ.** Aucun argent n'est prélevé. Pour le réel, brancher un agrégateur de paiement mobile dans `acheterEspace()` (`backend/src/radar.js`) — non fait, non testé.
+- Plafond d'un achat en ligne : `CONFIG.achatMaxKg` (50 kg). Prix au kilo : réglé par vol dans « Capacité & revente » (6 $ par défaut, à valider).

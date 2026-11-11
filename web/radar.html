@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radar des vols · Air Congo</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/config.js"></script>
+</head>
+<body class="fond-clair">
+<header class="pax-barre"><div><img src="/logo.png" alt="Logo Air Congo"><b>Radar des vols Air Congo</b><a href="/index.html" style="color:#fff;font-size:14px">Connexion · Suivre mon bagage</a></div></header>
+<main class="radar-page" id="vue"><div class="chargement">Chargement…</div></main>
+<script type="module">
+import { lancerRadar } from '/radar.js';
+lancerRadar(document.getElementById('vue'), { personnel: false });
+</script>
+</body>
+</html>

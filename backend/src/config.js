@@ -50,3 +50,30 @@ export const POINTS_PAR_DEFAUT = [
   { code: 'GOM-SOU', nom: 'Soute arrivée', station: 'GOM', etape: 'ARRIVE', lat: -1.6705, lon: 29.2392 },
   { code: 'GOM-LIV', nom: 'Tapis de remise', station: 'GOM', etape: 'LIVRE', lat: -1.6709, lon: 29.2383 },
 ];
+
+// Aéroports hors réseau Air Congo, utilisés seulement pour placer un avion sur la carte (coordonnées approximatives).
+export const AEROPORTS = {
+  NBO: { nom: 'Nairobi', lat: -1.319, lon: 36.927 }, ADD: { nom: 'Addis-Abeba', lat: 8.978, lon: 38.799 },
+  BRU: { nom: 'Bruxelles', lat: 50.901, lon: 4.484 }, CDG: { nom: 'Paris CDG', lat: 49.009, lon: 2.548 },
+  IST: { nom: 'Istanbul', lat: 41.275, lon: 28.752 }, LAD: { nom: 'Luanda', lat: -8.858, lon: 13.231 },
+  BZV: { nom: 'Brazzaville', lat: -4.251, lon: 15.253 }, JNB: { nom: 'Johannesburg', lat: -26.139, lon: 28.246 },
+  EBB: { nom: 'Entebbe', lat: 0.042, lon: 32.443 }, KGL: { nom: 'Kigali', lat: -1.968, lon: 30.139 },
+  CMN: { nom: 'Casablanca', lat: 33.367, lon: -7.59 }, ABJ: { nom: 'Abidjan', lat: 5.261, lon: -3.926 },
+  DLA: { nom: 'Douala', lat: 4.006, lon: 9.719 }, DXB: { nom: 'Dubaï', lat: 25.253, lon: 55.366 },
+  DOH: { nom: 'Doha', lat: 25.273, lon: 51.608 }, LFW: { nom: 'Lomé', lat: 6.166, lon: 1.254 },
+  DAR: { nom: 'Dar es Salaam', lat: -6.878, lon: 39.203 }, LUN: { nom: 'Lusaka', lat: -15.331, lon: 28.453 },
+};
+export const coordAeroport = (code) => STATIONS[code] ?? AEROPORTS[code] ?? null;
+
+// Compagnies proposées dans la recherche (le code IATA sert à interroger le fournisseur de vols ; null = recherche par nom).
+export const COMPAGNIES = [
+  { nom: 'Air Congo', code: null }, { nom: 'Congo Airways', code: '8Z' }, { nom: 'Kenya Airways', code: 'KQ' },
+  { nom: 'Ethiopian Airlines', code: 'ET' }, { nom: 'Brussels Airlines', code: 'SN' }, { nom: 'Air France', code: 'AF' },
+  { nom: 'Turkish Airlines', code: 'TK' }, { nom: 'Royal Air Maroc', code: 'AT' }, { nom: 'RwandAir', code: 'WB' },
+  { nom: 'Air Côte d’Ivoire', code: 'HF' }, { nom: 'Airlink', code: '4Z' }, { nom: 'Uganda Airlines', code: 'UR' },
+  { nom: 'Emirates', code: 'EK' }, { nom: 'Qatar Airways', code: 'QR' }, { nom: 'South African Airways', code: 'SA' },
+];
+
+// Opérateurs Mobile Money acceptés pour l'achat d'espace (paiement SIMULÉ tant qu'aucun agrégateur n'est branché).
+export const OPERATEURS_MM = { MPESA: 'M-Pesa (Vodacom)', ORANGE: 'Orange Money', AIRTEL: 'Airtel Money', AFRICELL: 'Africell Money' };
+CONFIG.achatMaxKg = 50; // plafond d'un achat en ligne

@@ -137,7 +137,7 @@ export async function chargerStations() {
 
 // ---- Carte OpenStreetMap (Leaflet) : chaque point de scan a ses coordonnées GPS ----
 let promesseLeaflet;
-function chargerLeaflet() {
+export function chargerLeaflet() {
   if (window.L) return Promise.resolve(window.L);
   return (promesseLeaflet ??= new Promise((resolve) => {
     const css = document.createElement('link');

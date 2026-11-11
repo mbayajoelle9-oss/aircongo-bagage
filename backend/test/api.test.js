@@ -240,7 +240,7 @@ test('vols automatiques : import, mise à jour des retards, erreurs du fournisse
   assert.equal((await call('GET', '/api/admin/vols', { token: AG })).status, 403);
   const liste0 = (await call('GET', '/api/admin/vols', { token: AD })).json;
   assert.equal(liste0.actif, true);
-  assert.equal(liste0.vols.length, 2); // vols de démonstration
+  assert.equal(liste0.vols.length, 4); // vols de démonstration
 
   assert.equal((await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'pas un vol' } })).status, 400);
   assert.equal((await call('POST', '/api/admin/vols/importer', { token: AD, body: { numero: 'zy100', date: '12/11/2026' } })).status, 400);
@@ -341,4 +341,78 @@ test('capacité de soute et revente de l\'espace libre', async () => {
   assert.equal(maj.json.capaciteKg, 400);
   assert.equal((await call('PATCH', `/api/admin/vols/${v101.id}`, { token: AD, body: { capaciteKg: -1 } })).status, 400);
   assert.equal((await call('PATCH', `/api/admin/vols/${v101.id}`, { token: AG, body: { capaciteKg: 400 } })).status, 403);
+});
+
+test('radar : positions, bagages réservés au personnel, recherche par compagnie', async () => {
+  const { call, AD, AG } = await demarrer();
+  const radar = (await call('GET', '/api/radar')).json; // public
+  assert.equal(radar.vols.length, 4);
+  const v101 = radar.vols.find((v) => v.numero === 'DEMO-101');
+  const v205 = radar.vols.find((v) => v.numero === 'DEMO-205');
+  assert.equal(v101.phase, 'EN_VOL');
+  assert.ok(v101.progression > 0.3 && v101.progression < 0.6);
+  // L'avion est bien entre Kinshasa (lon 15,4) et Lubumbashi (lon 27,5)
+  assert.ok(v101.position.lon > 15.4 && v101.position.lon < 27.6 && v101.position.lat < -4 && v101.position.lat > -11.6);
+  assert.equal(v205.phase, 'AU_SOL');
+  assert.equal(v205.achatOuvert, true);
+  assert.equal(v101.achatOuvert, false);
+  assert.equal(JSON.stringify(radar).includes('Mbemba'), false); // aucun nom de passager en public
+
+  // Recherche par nom de compagnie (sans accents ni casse)
+  assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'air CONGO' } })).json.vols.length, 3);
+  assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'congo airways' } })).json.vols.length, 1);
+  assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'Lufthansa' } })).json.vols.length, 0);
+  const sugg = (await call('GET', '/api/radar/compagnies', { query: { q: 'kenya' } })).json;
+  assert.equal(sugg[0].nom, 'Kenya Airways');
+
+  // Bagages d'un avion en vol : personnel seulement
+  assert.equal((await call('GET', `/api/agent/radar/vols/${v101.id}`)).status, 401);
+  const fiche = (await call('GET', `/api/agent/radar/vols/${v101.id}`, { token: AG })).json;
+  assert.equal(fiche.bagages.length, 4);
+  assert.ok(fiche.bagages.every((b) => b.code && b.passager));
+  assert.equal((await call('GET', `/api/radar/vols/${v101.id}`)).json.bagages, undefined);
+
+  // Achat d'espace en ligne (Mobile Money simulé) : seulement avant le décollage
+  const acheter = (body) => call('POST', '/api/espace/acheter', { body });
+  const bon = { volId: v205.id, kg: 10, nom: 'Marie Kasongo', telephone: '0812345678', operateur: 'MPESA' };
+  assert.equal((await acheter({ ...bon, volId: v101.id })).status, 409); // déjà décollé
+  assert.equal((await acheter({ ...bon, kg: 500 })).status, 400); // plafond en ligne
+  assert.equal((await acheter({ ...bon, kg: 0 })).status, 400);
+  assert.equal((await acheter({ ...bon, telephone: '123' })).status, 400);
+  assert.equal((await acheter({ ...bon, operateur: 'PAYPAL' })).status, 400);
+  assert.equal((await acheter({ ...bon, nom: '' })).status, 400);
+  assert.equal((await acheter({ ...bon, volId: 'inconnu' })).status, 404);
+  const avant = v205.libreKg;
+  const rec = await acheter(bon);
+  assert.equal(rec.status, 200);
+  assert.match(rec.json.reference, /^ES-[0-9A-F]{8}$/);
+  assert.equal(rec.json.montantUsd, 60);
+  assert.equal(rec.json.paiement, 'SIMULE');
+  assert.equal(rec.json.telephone.includes('812345'), false); // numéro masqué
+  const apres = (await call('GET', '/api/radar')).json.vols.find((v) => v.numero === 'DEMO-205');
+  assert.equal(apres.libreKg, Math.round((avant - 10) * 100) / 100);
+  assert.equal((await acheter({ ...bon, kg: 50 })).status, 200); // il reste de la place
+  assert.equal((await acheter({ ...bon, kg: 30 })).status, 409); // espace insuffisant refusé
+  const cap = (await call('GET', '/api/admin/capacite', { token: AD })).json;
+  assert.ok(cap.ventes.some((x) => x.reference === rec.json.reference && x.type === 'EN_LIGNE'));
+});
+
+test('import des vols par nom de compagnie', async () => {
+  const sans = await demarrer();
+  assert.equal((await sans.call('POST', '/api/admin/vols/importer-compagnie', { token: sans.AD, body: { compagnie: 'Kenya Airways' } })).status, 503);
+  const appels = [];
+  const bientot = new Date(Date.now() + 2 * 3600000).toISOString(); // heure locale UTC+1 dans 1 h
+  const plusTard = new Date(Date.now() + 6 * 3600000).toISOString();
+  const fetchImpl = async (u) => { appels.push(String(u)); return { json: async () => ({ data: [
+    { flight_date: bientot.slice(0, 10), flight_status: 'scheduled', departure: { iata: 'NBO', scheduled: bientot }, arrival: { iata: 'FIH', scheduled: plusTard }, airline: { name: 'Kenya Airways' }, flight: { iata: 'KQ554' } },
+  ] }) }; };
+  const { call, AD } = await demarrer({ fournisseurVols: creerFournisseurAviationstack({ cle: 'CLE', fetchImpl }) });
+  assert.equal((await call('POST', '/api/admin/vols/importer-compagnie', { token: AD, body: { compagnie: 'K' } })).status, 400);
+  const r = await call('POST', '/api/admin/vols/importer-compagnie', { token: AD, body: { compagnie: 'kenya airways' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.importes, 1);
+  assert.match(appels[0], /airline_iata=KQ/);
+  const l = (await call('GET', '/api/radar', { query: { compagnie: 'Kenya' } })).json.vols;
+  assert.equal(l.length, 1);
+  assert.equal(l[0].arrivee, 'FIH'); // NBO est placé grâce à la table d'aéroports
 });
