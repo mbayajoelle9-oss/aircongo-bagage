@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Air Congo Bagages",
+    "slug": "aircongo-bagages",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": { "image": "./assets/icon.png", "resizeMode": "contain", "backgroundColor": "#0b2a4a" },
+    "android": {
+      "package": "cd.aquilanexus.aircongobagages",
+      "versionCode": 1,
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#ffffff" },
+      "permissions": ["CAMERA", "INTERNET"]
+    },
+    "ios": { "bundleIdentifier": "cd.aquilanexus.aircongobagages", "infoPlist": { "NSCameraUsageDescription": "La caméra sert à scanner les étiquettes de bagages." } }
+  }
+}

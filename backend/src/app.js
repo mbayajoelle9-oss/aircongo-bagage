@@ -23,7 +23,7 @@ export function creerApp(repo, options) {
       maxAge: 600,
     }),
   );
-  app.use(express.json({ limit: '100kb' }));
+  app.use(express.json({ limit: '1mb' }));
 
   // Anti-devinette : connexion du personnel et suivi passager (réservation + nom)
   app.use(

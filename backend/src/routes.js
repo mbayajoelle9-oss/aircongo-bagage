@@ -29,6 +29,7 @@ import { CONFIG, STATIONS, OPERATEURS_MM } from './config.js';
 import { capaciteVols, configurerVol, vendreEspace, listerVentes } from './capacite.js';
 import { cleLecteurValide, traiterLectures } from './rfid.js';
 import { rechercherVols, importerVol, importerCompagnie, synchroniserVols, listerVols } from './vols.js';
+import { creerReservation, importerReservations, listerReservations } from './reservations.js';
 import { radarVols, ficheVol, chercherCompagnies, acheterEspace } from './radar.js';
 
 export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, fournisseurVols = null, cleLecteurRfid = null }) {
@@ -74,6 +75,9 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, f
         excedent: await calculExcedent(repo, res),
       };
     }),
+    r('POST', '/api/agent/reservations', async ({ body, headers }) => { await exiger(headers, PERSONNEL); return creerReservation(repo, body ?? {}); }),
+    r('POST', '/api/admin/reservations/importer', async ({ body, headers }) => { await exiger(headers, ['ADMIN']); return importerReservations(repo, body?.csv); }),
+    r('GET', '/api/admin/reservations', async ({ headers }) => { await exiger(headers, ['ADMIN']); return listerReservations(repo); }),
     r('GET', '/api/agent/reservations/:pnr', async ({ params, headers }) => {
       await exiger(headers, PERSONNEL);
       return vueReservation(repo, await trouverReservation(repo, params.pnr));

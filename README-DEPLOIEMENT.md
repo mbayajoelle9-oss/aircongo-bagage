@@ -80,3 +80,19 @@ Page « Capacité & revente » : par vol, capacité de soute (à régler : le d�
 - Les aéroports hors réseau Air Congo sont dans `backend/src/config.js` (`AEROPORTS`) ; ajoutez-en si un vol importé n'apparaît pas sur la carte.
 - **Mobile Money : paiement SIMULÉ.** Aucun argent n'est prélevé. Pour le réel, brancher un agrégateur de paiement mobile dans `acheterEspace()` (`backend/src/radar.js`) — non fait, non testé.
 - Plafond d'un achat en ligne : `CONFIG.achatMaxKg` (50 kg). Prix au kilo : réglé par vol dans « Capacité & revente » (6 $ par défaut, à valider).
+
+## Passagers : saisie et import de la liste d'Air Congo
+
+- Page **Passagers** : formulaire de réservation (agents et administrateur) et **import CSV** (administrateur). Colonnes : `pnr;nom;classe;vol` (+ `date;telephone;canal`). Le vol doit déjà exister (page Vols). Une réservation déjà connue (même PNR) est mise à jour. Maximum 2 000 lignes.
+- Le passager suit ensuite ses bagages avec son PNR + son nom, et voit son vol sur le radar (page passager) où il peut acheter de l'espace en soute.
+
+## Qui utilise quoi
+
+- **Console web (`/app.html`)** : administration uniquement. Un agent qui s'y rend est renvoyé vers son espace.
+- **Agent : téléphone** (`/agent.html`, barre d'onglets en bas : Scanner, Radar, Passagers). Application web mobile, sans installation ; une application native (Expo) pourra suivre.
+- **Passager : téléphone** (`/index.html` onglet Passager, puis `/passager.html`) et radar public `/radar.html`.
+- Les avions sont recalculés chaque seconde d'après les horaires (mouvement continu, sillage vert). Le passager voit une pastille « 🧳 N bagage(s) » voyager avec son avion dès que ses bagages sont chargés. La case « Démo accélérée ×60 » (administrateur) sert à montrer un vol complet en quelques minutes ; les positions sont alors fictives, avec bandeau d'avertissement.
+
+## Installer sur téléphone (sans APK)
+
+Le site est installable : ouvrir l'adresse Vercel dans Chrome (Android) → bouton vert « 📲 Installer l'application » ou menu ⋮ → « Installer l'application ». Une icône Air Congo apparaît sur l'écran d'accueil. L'APK à construire se trouve dans `mobile/` (voir `mobile/README.md`).

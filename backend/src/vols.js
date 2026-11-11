@@ -3,6 +3,8 @@
 // AeroDataBox…) se branchent en ajoutant une fonction qui renvoie le même format normalisé.
 import { HttpError } from './logic.js';
 import { COMPAGNIES } from './config.js';
+import { raisonAbsenceRadar, coordonneesSupplementaires } from './radar.js';
+import { coordAeroport } from './config.js';
 
 const STATUTS_API = {
   scheduled: 'PREVU', active: 'EN_VOL', landed: 'ATTERRI', cancelled: 'ANNULE', incident: 'INCIDENT', diverted: 'DEROUTE',
@@ -62,6 +64,15 @@ export function creerFournisseurAviationstack({ cle, url = 'http://api.aviations
       const vols = data.map(normaliserAviationstack).filter(Boolean);
       return date ? vols.filter((v) => v.date === date) : vols;
     },
+    // Coordonnées d'un aéroport (code IATA) : sert à placer sur la carte les vols vers des aéroports inconnus.
+    async aeroport(iata) {
+      let json;
+      try { json = await (await fetchImpl(`${url}/airports?${new URLSearchParams({ access_key: cle, search: iata, limit: '10' })}`, { signal: AbortSignal.timeout(10000) })).json(); }
+      catch { return null; }
+      const a = (json?.data ?? []).find((x) => String(x.iata_code).toUpperCase() === iata);
+      const lat = Number(a?.latitude), lon = Number(a?.longitude);
+      return a && Number.isFinite(lat) && Number.isFinite(lon) ? { nom: a.airport_name ?? iata, lat, lon } : null;
+    },
     // Tous les vols d'une compagnie (par code IATA si on le connaît, sinon par nom).
     async rechercherCompagnie({ nom, code }) {
       const data = await appeler({ limit: '25', ...(code ? { airline_iata: code } : { airline_name: nom }) });
@@ -105,10 +116,23 @@ async function enregistrerVol(repo, v) {
   return existant ? repo.update('vols', existant.id, doc) : repo.insert('vols', doc);
 }
 
+// Cherche chez le fournisseur les coordonnées des aéroports encore inconnus (une requête par aéroport, puis mémorisé).
+export async function completerAeroports(repo, fournisseur, vols) {
+  if (!fournisseur?.aeroport) return;
+  const connu = await coordonneesSupplementaires(repo);
+  for (const code of new Set(vols.flatMap((v) => [v.depart, v.arrivee]))) {
+    if (!code || connu(code)) continue;
+    const a = await fournisseur.aeroport(code);
+    if (a) await repo.insert('aeroports', { code, ...a });
+  }
+}
+
 export async function importerVol(repo, fournisseur, { numero, date }) {
   const trouves = await rechercherVols(fournisseur, { numero, date });
   if (!trouves.length) throw new HttpError(404, 'Aucun vol trouvé pour ce numéro et cette date');
-  return enregistrerVol(repo, trouves[0]);
+  const vol = await enregistrerVol(repo, trouves[0]);
+  await completerAeroports(repo, fournisseur, [vol]);
+  return vol;
 }
 
 // Actualise les vols déjà importés (hier et à venir), dans la limite de `max` requêtes pour ménager le forfait.
@@ -117,6 +141,7 @@ export async function synchroniserVols(repo, fournisseur, { max = 20 } = {}) {
   const hier = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   const a_suivre = (await repo.find('vols')).filter((v) => v.source === 'API' && (v.date ?? '') >= hier).slice(0, max);
   const resultat = { maj: 0, erreurs: [] };
+  await completerAeroports(repo, fournisseur, a_suivre); // vols importés avant l'ajout de la carte
   for (const v of a_suivre) {
     try {
       const [frais] = await fournisseur.rechercher({ numero: v.numero, date: v.date });
@@ -129,7 +154,8 @@ export async function synchroniserVols(repo, fournisseur, { max = 20 } = {}) {
 export async function listerVols(repo) {
   const l = await repo.find('vols');
   const reservations = await repo.find('reservations');
-  return l.map((v) => ({ ...v, libelleStatut: LIBELLES_VOL[v.statut] ?? null, passagers: reservations.filter((r) => r.volId === v.id).length }))
+  const now = Date.now(), coord = await coordonneesSupplementaires(repo);
+  return l.map((v) => ({ ...v, raisonAbsenceRadar: raisonAbsenceRadar(v, now, coord), libelleStatut: LIBELLES_VOL[v.statut] ?? null, passagers: reservations.filter((r) => r.volId === v.id).length }))
     .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (a.heureDepart ?? '').localeCompare(b.heureDepart ?? ''));
 }
 
@@ -142,5 +168,6 @@ export async function importerCompagnie(repo, fournisseur, { compagnie }) {
   if (!trouves.length) throw new HttpError(404, `Aucun vol trouvé pour « ${nom} »`);
   const vols = [];
   for (const v of trouves) vols.push(await enregistrerVol(repo, { ...v, compagnie: v.compagnie ?? connue?.nom ?? nom }));
+  await completerAeroports(repo, fournisseur, vols);
   return { importes: vols.length, vols };
 }

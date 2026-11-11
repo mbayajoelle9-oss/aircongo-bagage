@@ -416,3 +416,56 @@ test('import des vols par nom de compagnie', async () => {
   assert.equal(l.length, 1);
   assert.equal(l[0].arrivee, 'FIH'); // NBO est placé grâce à la table d'aéroports
 });
+
+test('vols importés : toujours sur le radar, même vol passé ou aéroport inconnu', async () => {
+  const vol = { flight_date: '2026-11-10', flight_status: 'scheduled', departure: { iata: 'YTS', scheduled: '2026-11-10T09:45:00+00:00' }, arrival: { iata: 'YAT', scheduled: '2026-11-10T11:00:00+00:00' }, airline: { name: 'Congo Airways' }, flight: { iata: '8Z600' } };
+  let aeroports = [];
+  const fetchImpl = async (u) => ({ json: async () => (String(u).includes('/airports') ? { data: aeroports } : { data: [vol] }) });
+  const { call, AD } = await demarrer({ fournisseurVols: creerFournisseurAviationstack({ cle: 'CLE', fetchImpl }) });
+  await call('POST', '/api/admin/vols/importer-compagnie', { token: AD, body: { compagnie: 'Congo Airways' } });
+  // Aéroports introuvables : le vol est listé, sans position
+  let radar = (await call('GET', '/api/radar')).json.vols.find((v) => v.numero === '8Z600');
+  assert.ok(radar);
+  assert.equal(radar.position, null);
+  const l = (await call('GET', '/api/admin/vols', { token: AD })).json.vols;
+  assert.match(l.find((v) => v.numero === '8Z600').raisonAbsenceRadar, /Aéroport inconnu : YTS, YAT/);
+  assert.equal(l.find((v) => v.numero === 'DEMO-205').raisonAbsenceRadar, null);
+  // Le fournisseur donne les coordonnées au prochain « Actualiser » : l'avion est dessiné, même si le vol date d'hier
+  aeroports = [{ iata_code: 'YTS', airport_name: 'Timmins', latitude: '48.569', longitude: '-81.376' }, { iata_code: 'YAT', airport_name: 'Attawapiskat', latitude: '52.927', longitude: '-82.432' }];
+  await call('POST', '/api/admin/vols/synchroniser', { token: AD });
+  radar = (await call('GET', '/api/radar')).json.vols.find((v) => v.numero === '8Z600');
+  assert.ok(radar.position && radar.phase === 'ARRIVE');
+  assert.equal((await call('GET', '/api/admin/vols', { token: AD })).json.vols.find((v) => v.numero === '8Z600').raisonAbsenceRadar, null);
+});
+
+test('réservations : saisie au comptoir et import CSV de la liste des passagers', async () => {
+  const { call, AD, AG } = await demarrer();
+  const creer = (token, body) => call('POST', '/api/agent/reservations', { token, body });
+  assert.equal((await creer(undefined, { pnr: 'XY1234', nom: 'A B', vol: 'DEMO-205' })).status, 401);
+  assert.equal((await creer(AG, { pnr: 'x', nom: 'Jean Mukendi', vol: 'DEMO-205' })).status, 400);
+  assert.equal((await creer(AG, { pnr: 'XY1234', nom: 'Jean Mukendi', vol: 'NOPE-1' })).status, 404);
+  assert.equal((await creer(AG, { pnr: 'XY1234', nom: 'Jean Mukendi', vol: 'DEMO-205', classe: 'LUXE' })).status, 400);
+  const ok = await creer(AG, { pnr: 'xy1234', nom: 'Jean Mukendi', vol: 'demo-205', classe: 'vip', telephone: '0812345678', canalAlerte: 'WHATSAPP' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.creee, true);
+  // le passager peut ensuite suivre avec PNR + nom
+  assert.equal((await call('GET', '/api/suivi/XY1234', { query: { nom: 'Jean Mukendi' } })).status, 200);
+
+  const csv = 'PNR;Nom;Classe;Vol;Téléphone;Canal\nAB1001;Kasongo Marie;ECO;DEMO-101;0811111111;SMS\nAB1002;"Ilunga, Paul";BUSINESS;DEMO-101;;WHATSAPP\nAB1001;Doublon;ECO;DEMO-101;;\nAB1003;Sans Vol;ECO;ZZ999;;\nXY1234;Jean Mukendi;ECO;DEMO-205;;';
+  assert.equal((await call('POST', '/api/admin/reservations/importer', { token: AG, body: { csv } })).status, 403);
+  const imp = (await call('POST', '/api/admin/reservations/importer', { token: AD, body: { csv } })).json;
+  assert.equal(imp.crees, 2);
+  assert.equal(imp.mis_a_jour, 1);
+  assert.deepEqual(imp.erreurs.map((e) => e.ligne), [4, 5]);
+  assert.match(imp.erreurs[1].message, /Vol introuvable/);
+  assert.equal((await call('GET', '/api/suivi/AB1002', { query: { nom: 'Ilunga, Paul' } })).status, 200);
+  assert.equal((await call('POST', '/api/admin/reservations/importer', { token: AD, body: { csv: 'pnr;nom\nA;B' } })).status, 400); // colonne vol absente
+  const liste = (await call('GET', '/api/admin/reservations', { token: AD })).json;
+  assert.ok(liste.some((r) => r.pnr === 'AB1001' && r.vol === 'DEMO-101'));
+});
+
+test('radar : recherche par numéro de vol avec tiret', async () => {
+  const { call } = await demarrer();
+  assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'DEMO-205' } })).json.vols.length, 1);
+  assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'demo 205' } })).json.vols.length, 1);
+});

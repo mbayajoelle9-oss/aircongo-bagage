@@ -46,8 +46,8 @@ function horaires(v, pA, pB) {
 
 export const LIBELLES_PHASE = { AU_SOL: 'Au sol', EN_VOL: 'En vol', ARRIVE: 'Arrivé', ANNULE: 'Annulé' };
 
-function etatVol(v, now) {
-  const pA = coordAeroport(v.depart), pB = coordAeroport(v.arrivee);
+function etatVol(v, now, coord = coordAeroport) {
+  const pA = coord(v.depart), pB = coord(v.arrivee);
   if (!pA || !pB) return null; // aéroport inconnu : impossible de placer l'avion
   const h = horaires(v, pA, pB);
   let phase, f;
@@ -62,16 +62,42 @@ function etatVol(v, now) {
   return { phase, progression: r2(f), position: interpoler(pA, pB, f), cap: Math.round(cap(pA, pB)), h, pA, pB };
 }
 
+// Pourquoi un vol n'est pas dessiné sur la carte (null = il l'est). Un vol importé figure toujours dans la liste du radar.
+export function raisonAbsenceRadar(v, now = Date.now(), coord = coordAeroport) {
+  const e = etatVol(v, now, coord);
+  if (!e) return `Aéroport inconnu : ${[v.depart, v.arrivee].filter((c) => !coord(c)).join(', ')} — position sur la carte indisponible`;
+  if (v.source !== 'API' && e.h && now > e.h.arr + 3 * 3600000) return 'Vol passé (terminé depuis plus de 3 h)';
+  if (v.source !== 'API' && e.h && now < e.h.dep - 12 * 3600000) return 'Vol trop lointain (affiché 12 h avant le départ)';
+  return null;
+}
+
+// Aéroports découverts automatiquement (coordonnées demandées au fournisseur lors de l'import).
+export async function coordonneesSupplementaires(repo) {
+  const m = new Map((await repo.find('aeroports')).map((a) => [a.code, a]));
+  return (code) => coordAeroport(code) ?? m.get(code) ?? null;
+}
+
 async function lignesRadar(repo, now) {
   const [vols, capa, reservations] = await Promise.all([repo.find('vols'), capaciteVols(repo), repo.find('reservations')]);
   const capParId = new Map(capa.map((c) => [c.id, c]));
+  const coord = await coordonneesSupplementaires(repo);
   const out = [];
   for (const v of vols) {
-    const e = etatVol(v, now);
-    if (!e) continue;
-    // Fenêtre d'affichage : de 12 h avant le départ à 3 h après l'arrivée (les vols sans horaire restent visibles).
-    if (e.h && (now < e.h.dep - 12 * 3600000 || now > e.h.arr + 3 * 3600000)) continue;
+    const e = etatVol(v, now, coord);
+    // Les vols importés s'affichent toujours ; les autres seulement de 12 h avant le départ à 3 h après l'arrivée.
+    if (e && v.source !== 'API' && e.h && (now < e.h.dep - 12 * 3600000 || now > e.h.arr + 3 * 3600000)) continue;
     const c = capParId.get(v.id);
+    if (!e) { // aéroport inconnu : le vol reste listé, sans position sur la carte
+      const phase = v.statut === 'ANNULE' ? 'ANNULE' : v.statut === 'ATTERRI' ? 'ARRIVE' : v.statut === 'EN_VOL' ? 'EN_VOL' : 'AU_SOL';
+      out.push({
+        id: v.id, numero: v.numero, compagnie: v.compagnie ?? null, depart: v.depart, arrivee: v.arrivee, villeDepart: v.depart, villeArrivee: v.arrivee,
+        heureDepart: v.heureDepart ?? null, departTs: null, arriveeTs: null, statut: v.statut ?? null, phase, libellePhase: LIBELLES_PHASE[phase], progression: 0,
+        position: null, cap: 0, trace: [], passagers: reservations.filter((x) => x.volId === v.id).length,
+        nbBagages: c.nbBagages, bagagesKg: c.bagagesKg, fretKg: c.fretKg, capaciteKg: c.capaciteKg, libreKg: c.libreKg, remplissagePct: c.remplissagePct,
+        prixUsdKg: c.prixReventeUsdKg, achatOuvert: phase === 'AU_SOL' && c.libreKg > 0,
+      });
+      continue;
+    }
     out.push({
       id: v.id, numero: v.numero, compagnie: v.compagnie ?? null, depart: v.depart, arrivee: v.arrivee,
       villeDepart: e.pA.ville ?? e.pA.nom, villeArrivee: e.pB.ville ?? e.pB.nom,
@@ -90,7 +116,7 @@ async function lignesRadar(repo, now) {
 export async function radarVols(repo, { compagnie, now = Date.now() } = {}) {
   let l = await lignesRadar(repo, now);
   const q = norm(compagnie);
-  if (q) l = l.filter((v) => norm(v.compagnie).includes(q) || norm(v.numero).includes(q.replace(/ /g, '')));
+  if (q) l = l.filter((v) => norm(v.compagnie).includes(q) || norm(v.numero).replace(/ /g, '').includes(q.replace(/ /g, '')));
   return { maj: new Date(now).toISOString(), vols: l };
 }
 
