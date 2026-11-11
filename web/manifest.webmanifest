@@ -1,0 +1,16 @@
+{
+  "name": "Air Congo · Traçabilité des bagages",
+  "short_name": "Air Congo",
+  "description": "Suivi des bagages en temps réel, radar des vols et espace en soute",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b2a4a",
+  "theme_color": "#0b2a4a",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

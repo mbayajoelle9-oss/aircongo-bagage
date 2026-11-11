@@ -1,3 +1,4 @@
+import { lancerRadar } from '/radar.js';
 import { api, esc, usd, pill, frise, heure, dateHeure, toast, ouvrirDialogue, qrImage, zoneCarte, montrerCarte, CANAUX, STATUTS } from '/common.js';
 
 let acces;
@@ -60,7 +61,8 @@ async function afficher() {
     <p class="muted petit" style="margin:8px 0 0">Paiement simulé dans cette démonstration.</p></section>`
     : ex.excesKg > 0 ? '<section class="carte"><div class="excedent ok">Excédent réglé. Merci !</div></section>' : ''}
 
-  <section class="carte"><h2 style="margin:0">Mes bagages</h2>
+  <div class="actions-pax"><a class="btn sec" href="#radarVue">✈ Mon vol sur le radar</a><a class="btn vert" href="#radarVue">Acheter de l’espace en soute</a></div>
+  <section class="carte"><h2 style="margin:0">Mes bagages <span class="live">● suivi en direct</span></h2>
     ${nbSans ? `<p class="muted petit" style="margin:10px 0 0">Votre étiquette est émise par Air Congo. Le bagage apparaît ici dès son premier passage en station.</p>` : ''}
     ${d.bagages.length ? d.bagages.map((b, i) => `
       <article class="sac" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--bord)">
@@ -112,5 +114,9 @@ function litige(code) {
 }
 
 await charger();
+if (donnees) { // le radar est monté une seule fois, hors de la zone rafraîchie ; l'avion du passager est ouvert d'emblée
+  document.getElementById('radarVue').hidden = false;
+  lancerRadar(document.getElementById('radarZone'), { personnel: false, filtre: donnees.vol.numero, ouvrir: donnees.vol.numero, mesBagages: () => donnees?.bagages ?? [] }).catch((e) => console.error('radar', e));
+}
 const t = setInterval(() => { if (!document.hidden && !document.querySelector('dialog[open]')) charger(true); }, 8000);
 window.addEventListener('pagehide', () => clearInterval(t));

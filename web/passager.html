@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mes bagages · Air Congo</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b2a4a">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/style.css">
 <script src="/config.js"></script>
@@ -11,6 +14,8 @@
 <body class="fond-clair">
 <header class="pax-barre"><div><img src="/logo.png" alt="Logo Air Congo"><b>Suivi de mes bagages</b><button type="button" id="sortir">Quitter</button></div></header>
 <main class="pax" id="vue"><div class="chargement">Chargement…</div></main>
+<section class="radar-page" id="radarVue" hidden><h2 style="margin:0 0 4px">Mon vol en direct et espace en soute</h2><p class="muted petit" style="margin:0 0 12px">Cliquez sur un avion. Avion au sol : vous pouvez acheter de l’espace en soute (Mobile Money). Avion en vol : nombre de bagages à bord.</p><div id="radarZone"></div></section>
 <script type="module" src="/passager.js"></script>
+<script src="/pwa.js"></script>
 </body>
 </html>

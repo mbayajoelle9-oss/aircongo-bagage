@@ -3,82 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent en station – Air Congo</title>
+<title>Agent · Air Congo</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b2a4a">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/style.css">
 <script src="/config.js"></script>
 </head>
-<body>
-<header><img src="/logo.png" alt="Logo Air Congo" width="44" height="44"><div><h1>Agent en station</h1><small>Scan des bagages</small></div></header>
-<main>
-  <div class="carte">
-    <div class="ligne">
-      <div><label for="station">Station</label><select id="station"><option>FIH</option><option>FBM</option><option>GOM</option></select></div>
-      <div><label for="etape">Étape</label><select id="etape">
-        <option value="ENREGISTRE">Enregistrement</option><option value="CHARGE">Chargement</option>
-        <option value="TRANSIT">Transit</option><option value="ARRIVE">Arrivée</option><option value="LIVRE">Remise au passager</option></select></div>
-      <div><label for="agent">Agent</label><input id="agent" value="Agent A"></div>
+<body class="mobile" data-espace="agent">
+<div class="coque">
+  <aside class="menu">
+    <div class="marque">
+      <img src="/logo.png" alt="Logo Air Congo">
+      <div><b>Air Congo</b><span>Traçabilité des bagages</span></div>
     </div>
-    <label for="code">Code du bagage (scan ou saisie)</label>
-    <input id="code" class="code" placeholder="AC123456" autocapitalize="characters" autofocus>
-    <div id="champPoids"><label for="poids">Poids sur la balance (kg)</label><input id="poids" type="number" inputmode="decimal" step="0.1"></div>
-    <label for="cle">Clé d'accès agent</label><input id="cle" type="password">
-    <p><button id="scan">Valider le scan</button></p>
-  </div>
-  <div class="msg" id="msg" hidden></div>
-  <div id="fiche"></div>
-  <div class="carte"><h2>Derniers scans</h2><table id="hist"></table></div>
-</main>
-<script type="module">
-import { esc, api, message, usd, heure } from '/app.js';
-const $ = (id) => document.getElementById(id);
-const cle = $('cle');
-cle.value = sessionStorage.getItem('cleAgent') || (window.CLES && window.CLES.agent) || '';
-const historique = [];
-
-function majChamps() { $('champPoids').hidden = $('etape').value !== 'ENREGISTRE'; }
-$('etape').onchange = majChamps; majChamps();
-
-function fiche(d) {
-  const ex = d.excedent;
-  $('fiche').innerHTML = `<div class="carte"><b>${esc(d.passager)}</b> <span class="badge">${esc(d.classe)}</span>
-    <span class="petit">· réservation ${esc(d.pnr)} · ${esc(d.bagage.libelle)}</span>
-    ${d.bagage.niveau === 'VIP' ? '<span class="badge vip">VIP · RFID</span>' : ''}
-    ${ex.kgRestants > 0
-      ? `<div class="msg warn">Excédent à encaisser : <b>${ex.kgRestants} kg = ${usd(ex.montantComptoirUsd)}</b>
-         <p><button id="encaisser" class="vert">Encaisser au comptoir</button></p></div>`
-      : ex.excesKg > 0 ? '<div class="msg ok">Excédent réglé.</div>' : ''}</div>`;
-  const b = $('encaisser');
-  if (b) b.onclick = async () => {
-    try {
-      await api('POST', `/api/agent/payer/${d.pnr}`, {}, cle.value);
-      message($('msg'), 'ok', 'Excédent encaissé.');
-      voir(d.bagage.code);
-    } catch (e) { message($('msg'), 'err', e.message); }
-  };
-}
-
-async function voir(code) {
-  fiche(await api('GET', `/api/agent/bagages/${encodeURIComponent(code)}`, null, cle.value));
-}
-
-$('code').addEventListener('change', () => { if ($('code').value.trim()) voir($('code').value.trim()).catch(() => {}); });
-
-$('scan').onclick = async () => {
-  sessionStorage.setItem('cleAgent', cle.value);
-  const code = $('code').value.trim().toUpperCase();
-  try {
-    const r = await api('POST', '/api/agent/scans', {
-      code, etape: $('etape').value, station: $('station').value, agent: $('agent').value,
-      poidsKg: $('etape').value === 'ENREGISTRE' && $('poids').value ? $('poids').value : undefined,
-    }, cle.value);
-    message($('msg'), r.avertissement ? 'warn' : 'ok', `${code} → ${r.bagage.libelle}` + (r.avertissement ? ` (${r.avertissement})` : ''));
-    historique.unshift(`<tr><td>${heure(r.scan.ts)}</td><td>${esc(code)}</td><td>${esc(r.scan.etape)}</td><td>${esc(r.scan.station)}</td></tr>`);
-    $('hist').innerHTML = historique.slice(0, 15).join('');
-    await voir(code);
-    $('code').value = ''; $('poids').value = ''; $('code').focus();
-  } catch (e) { message($('msg'), 'err', e.message); }
-};
-</script>
+    <nav id="nav" aria-label="Navigation principale"></nav>
+    <div class="moi">
+      <div><b id="moiNom"></b><span id="moiRole"></span></div>
+      <button type="button" id="sortir"></button>
+    </div>
+  </aside>
+  <main class="principal" id="vue"><div class="chargement">Chargement…</div></main>
+</div>
+<script type="module" src="/app.js"></script>
+<script src="/pwa.js"></script>
 </body>
 </html>

@@ -1,9 +1,12 @@
 import { lancerRadar } from '/radar.js';
-import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, qrImage, zoneCarte, montrerCarte, chargerStations, STATUTS } from '/common.js';
+import { api, session, esc, heure, dateHeure, usd, pill, frise, icone, toast, ouvrirDialogue, qrImage, zoneCarte, montrerCarte, chargerStations, CANAUX, STATUTS } from '/common.js';
 
 const moi = session.user;
 let STATIONS_INFO = {};
+const ESPACE = document.body.dataset.espace;
 if (!session.token || !moi) location.replace('/index.html');
+// Console web : réservée à l'administration. Les agents travaillent sur leur téléphone (/agent.html).
+else if (ESPACE === 'admin' && moi.role !== 'ADMIN') location.replace('/agent.html');
 
 const $ = (id) => document.getElementById(id);
 const vue = $('vue');
@@ -18,6 +21,7 @@ const PAGES = [
   { id: 'dashboard', titre: 'Tableau de bord', ico: 'grille', admin: true },
   { id: 'capacite', titre: 'Capacité & revente', ico: 'dollar', admin: true },
   { id: 'vols', titre: 'Vols', ico: 'avion', admin: true },
+  { id: 'reservations', titre: 'Passagers', ico: 'equipe', admin: false },
   { id: 'carte', titre: 'Carte & points', ico: 'epingle', admin: true },
   { id: 'bagages', titre: 'Bagages', ico: 'bagage', admin: true },
   { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true },
@@ -48,7 +52,7 @@ async function naviguer() {
   menu(page.id);
   vue.innerHTML = '<div class="chargement">Chargement…</div>';
   try {
-    await ({ radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
+    await ({ radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, reservations: vueReservations, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
   } catch (e) {
     vue.innerHTML = `<div class="carte"><div class="erreur" style="margin:0">${esc(e.message)}</div></div>`;
   }
@@ -244,7 +248,7 @@ async function vueCapacite() {
           <td style="min-width:220px"><div class="capa-barre" title="Bagages ${v.bagagesKg} kg · fret ${v.fretKg} kg"><i class="b" style="width:${Math.min(100, pb)}%"></i><i class="f" style="width:${Math.min(100 - Math.min(100, pb), pf)}%"></i></div><span class="muted petit">${v.bagagesKg} kg bagages (${v.nbBagages}) + ${v.fretKg} kg fret / ${v.capaciteKg} kg${v.capaciteDefinie ? '' : ' (capacité par défaut)'}</span></td>
           <td><b>${v.libreKg} kg</b></td><td>${usd(v.prixReventeUsdKg)}</td><td>${usd(v.potentielUsd)}</td><td>${usd(v.recettesFretUsd)}</td>
           <td style="white-space:nowrap"><button class="btn mini" data-vendre="${esc(v.id)}" ${v.libreKg <= 0 ? 'disabled' : ''}>Vendre</button> <button class="btn sec mini" data-regler="${esc(v.id)}">Régler</button></td></tr>`;
-      }).join('') : '<tr><td colspan="7" class="vide">Aucun vol. Importez un vol depuis la page Vols.</td></tr>'
+      }).join('') : '<tr><td colspan="8" class="vide">Aucun vol. Importez un vol depuis la page Vols.</td></tr>'
     }</tbody></table></div><p class="legende-carte"><span class="capa-leg b"></span> bagages passagers <span class="capa-leg f"></span> fret vendu <span class="capa-leg l"></span> espace libre</p></div>
     <div class="carte"><h2>Ventes récentes</h2>${ventes.length ? `<div class="tableau"><table><thead><tr><th>Date</th><th>Vol</th><th>Client</th><th>Poids</th><th>Montant</th><th>Vendeur</th></tr></thead><tbody>${ventes.map((x) => `<tr><td>${dateHeure(x.ts)}</td><td>${esc(x.numeroVol)}</td><td>${esc(x.client)}</td><td>${x.kg} kg à ${usd(x.prixUsdKg)}</td><td><b>${usd(x.montantUsd)}</b></td><td>${esc(x.agent)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucune vente pour le moment.</p>'}</div>
     <div class="carte"><h2>Comment l’espace libre devient une recette</h2><ul style="margin:6px 0 0;padding-left:20px;line-height:1.6"><li><b>Fret et colis de dernière minute :</b> chaque kilo libre se vend au comptoir ou en ligne avant le départ (bouton « Vendre »).</li><li><b>Excédent de bagages :</b> facturé aux passagers, avec −20 % en prépaiement pour désengorger les comptoirs.</li><li><b>Service VIP :</b> suivi RFID et alertes, une offre premium facturable.</li></ul><p class="muted petit" style="margin:10px 0 0">Prix et capacités de cette démonstration : à valider avec Air Congo (capacité réelle de soute par type d’avion).</p></div>`;
@@ -286,6 +290,53 @@ async function vueCapacite() {
 }
 
 // ============================================================
+// Passagers : saisie d'une réservation et import de la liste fournie par Air Congo
+// ============================================================
+const MODELE_CSV = 'pnr;nom;classe;vol;date;telephone;canal\nACG501;Mbemba Joseph;ECO;DEMO-205;;0812345678;SMS\nACV502;Kabila Sarah;VIP;DEMO-205;;0899999999;WHATSAPP\n';
+async function vueReservations() {
+  const vols = EST_ADMIN ? (await api('GET', '/api/admin/vols')).vols : [];
+  vue.innerHTML = entete('Passagers', 'Créez une réservation ou importez la liste des passagers d’un vol (fichier CSV)') +
+    `<div class="grille2"><div class="carte"><h2>Nouvelle réservation</h2><form id="fRes">
+      <label class="champ">Numéro de réservation (PNR)<input class="input" name="pnr" required minlength="4" maxlength="10" style="text-transform:uppercase"></label>
+      <label class="champ">Nom du passager<input class="input" name="nom" required minlength="2" maxlength="80"></label>
+      <label class="champ">Numéro de vol<input class="input" name="vol" required list="lVols" placeholder="Ex. DEMO-205 ou KQ554"><datalist id="lVols">${vols.map((v) => `<option value="${esc(v.numero)}">`).join('')}</datalist></label>
+      <label class="champ">Classe<select class="input" name="classe"><option>ECO</option><option>BUSINESS</option><option>VIP</option></select></label>
+      <label class="champ">Téléphone (pour les alertes)<input class="input" name="telephone" type="tel" placeholder="0812345678"></label>
+      <label class="champ">Canal d’alerte<select class="input" name="canalAlerte"><option value="SMS">SMS</option><option value="WHATSAPP">WhatsApp</option><option value="WEB">Portail seulement</option></select></label>
+      <button class="btn bloc" type="submit" style="margin-top:14px">Enregistrer la réservation</button></form></div>
+    ${EST_ADMIN ? `<div class="carte"><h2>Importer la liste des passagers</h2>
+      <p class="muted petit" style="margin:0 0 8px">Fichier CSV (Excel : « Enregistrer sous » → CSV) avec les colonnes <b>pnr, nom, classe, vol</b> et, si possible, date, telephone, canal. Les vols doivent déjà exister (page Vols). Une réservation déjà connue est mise à jour.</p>
+      <input class="input" type="file" id="fichier" accept=".csv,.txt"><div class="rang" style="margin-top:10px"><button class="btn" id="importer">Importer</button><button class="btn sec" id="modele" type="button">Télécharger un modèle</button></div><div id="bilan"></div></div>` : ''}</div>
+    ${EST_ADMIN ? '<div class="carte"><h2>Réservations enregistrées</h2><div id="listeRes"><p class="muted">Chargement…</p></div></div>' : ''}`;
+  const rafraichir = async () => {
+    if (!EST_ADMIN) return;
+    const l = await api('GET', '/api/admin/reservations');
+    $('listeRes').innerHTML = l.length ? `<div class="tableau"><table><thead><tr><th>PNR</th><th>Passager</th><th>Classe</th><th>Vol</th><th>Alertes</th><th>Bagages</th></tr></thead><tbody>${l.map((r) => `<tr><td class="mono">${esc(r.pnr)}</td><td>${esc(r.nom)}</td><td>${esc(r.classe)}</td><td>${esc(r.vol)}</td><td>${esc(CANAUX[r.canalAlerte] ?? r.canalAlerte)}</td><td>${r.bagages}</td></tr>`).join('')}</tbody></table></div>` : '<p class="vide">Aucune réservation.</p>';
+  };
+  rafraichir().catch(() => {});
+  $('fRes').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = ev.target, b = Object.fromEntries(new FormData(f));
+    try { const r = await api('POST', '/api/agent/reservations', b); toast(`Réservation ${r.pnr} ${r.creee ? 'créée' : 'mise à jour'}`); f.reset(); rafraichir(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
+  if (!EST_ADMIN) return;
+  $('modele').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([MODELE_CSV], { type: 'text/csv' })); a.download = 'modele-passagers.csv'; a.click(); };
+  $('importer').onclick = async () => {
+    const fic = $('fichier').files[0];
+    if (!fic) return toast('Choisissez un fichier CSV', 'warn');
+    if (fic.size > 900000) return toast('Fichier trop gros (max 900 Ko)', 'err');
+    $('importer').disabled = true;
+    try {
+      const r = await api('POST', '/api/admin/reservations/importer', { csv: await fic.text() });
+      $('bilan').innerHTML = `<div class="fiche-bagage" style="margin-top:12px"><b>${r.crees} créée(s) · ${r.mis_a_jour} mise(s) à jour · ${r.erreurs.length} erreur(s)</b>${r.erreurs.length ? `<ul style="margin:8px 0 0;padding-left:18px">${r.erreurs.slice(0, 30).map((e) => `<li>Ligne ${e.ligne} : ${esc(e.message)}</li>`).join('')}</ul>` : ''}</div>`;
+      rafraichir();
+    } catch (e) { toast(e.message, 'err'); }
+    $('importer').disabled = false;
+  };
+}
+
+// ============================================================
 // Radar des vols (carte type Flightradar : bagages en vol, espace libre au sol)
 // ============================================================
 async function vueRadar() {
@@ -305,7 +356,7 @@ async function vueVols() {
   const { actif, fournisseur, vols } = await api('GET', '/api/admin/vols');
   const aujourdhui = new Date().toISOString().slice(0, 10);
   vue.innerHTML =
-    entete('Vols', 'Horaires, statuts et retards récupérés automatiquement', actif ? `<button class="btn sec" id="sync">${icone('avion')} Actualiser les vols</button>` : '') +
+    entete('Vols', 'Horaires, statuts et retards récupérés automatiquement', `<button class="btn sec" id="demo">Recharger la démo</button> ` + (actif ? `<button class="btn sec" id="sync">${icone('avion')} Actualiser les vols</button>` : '')) +
     (actif
       ? `<div class="carte"><h2>Importer les vols d’une compagnie</h2><p class="muted petit" style="margin:0 0 6px">Tapez le nom de la compagnie (ex. Kenya Airways) : ses vols, horaires et statuts sont récupérés automatiquement (source : ${esc(fournisseur)}) et apparaissent sur le radar.</p>
         <form id="fCie" class="rang" style="align-items:end"><label class="champ" style="flex:1">Compagnie<input class="input" name="compagnie" list="listeCies" required placeholder="Ex. Kenya Airways" autocomplete="off"><datalist id="listeCies"></datalist></label><button class="btn" type="submit">Importer ses vols</button></form></div>
@@ -314,10 +365,15 @@ async function vueVols() {
         <label class="champ">Date<input class="input" type="date" name="date" value="${aujourdhui}"></label><button class="btn" type="submit">Rechercher</button></form>
         <div id="resVol"></div></details>`
       : `<div class="carte"><h2>Récupération automatique non activée</h2><p style="margin:6px 0 0">Pour importer les vols automatiquement, ajoutez dans Render (Environment) la variable <b class="mono">FLIGHT_API_KEY</b> avec votre clé aviationstack, puis redéployez. Les vols saisis ou de démonstration continuent de fonctionner.</p></div>`) +
-    `<div class="carte"><div class="tableau"><table><thead><tr><th>Vol</th><th>Date</th><th>Trajet</th><th>Départ</th><th>Statut</th><th>Passagers</th><th>Source</th></tr></thead><tbody>${
-      vols.length ? vols.map((v) => `<tr><td><b>${esc(v.numero)}</b></td><td>${jourFr(v.date)}</td><td>${esc(v.depart)} → ${esc(v.arrivee)}</td><td>${esc(v.heureDepart ?? '—')}${v.retardMin > 0 ? ` <span class="muted petit">(vers ${esc(v.heureDepartEstimee ?? '?')})</span>` : ''}</td><td>${v.libelleStatut ? `<span class="pill ${CLASSE_VOL[v.statut] ?? 'rouge'}">${esc(v.libelleStatut)}${v.retardMin > 0 ? ` +${v.retardMin} min` : ''}</span>` : '<span class="muted">—</span>'}</td><td>${v.passagers}</td><td>${v.source === 'API' ? `API${v.majLe ? ' · ' + heure(v.majLe) : ''}` : 'Démo / saisi'}</td></tr>`).join('') : '<tr><td colspan="7" class="vide">Aucun vol.</td></tr>'
+    `<div class="carte"><div class="tableau"><table><thead><tr><th>Vol</th><th>Date</th><th>Trajet</th><th>Départ</th><th>Statut</th><th>Passagers</th><th>Radar</th><th>Source</th></tr></thead><tbody>${
+      vols.length ? vols.map((v) => `<tr><td><b>${esc(v.numero)}</b></td><td>${jourFr(v.date)}</td><td>${esc(v.depart)} → ${esc(v.arrivee)}</td><td>${esc(v.heureDepart ?? '—')}${v.retardMin > 0 ? ` <span class="muted petit">(vers ${esc(v.heureDepartEstimee ?? '?')})</span>` : ''}</td><td>${v.libelleStatut ? `<span class="pill ${CLASSE_VOL[v.statut] ?? 'rouge'}">${esc(v.libelleStatut)}${v.retardMin > 0 ? ` +${v.retardMin} min` : ''}</span>` : '<span class="muted">—</span>'}</td><td>${v.passagers}</td><td>${v.raisonAbsenceRadar ? `<span class="pill jaune" title="${esc(v.raisonAbsenceRadar)}">Liste seulement</span><div class="muted petit" style="max-width:200px">${esc(v.raisonAbsenceRadar)}</div>` : '<span class="pill vert">Affiché</span>'}</td><td>${v.source === 'API' ? `API${v.majLe ? ' · ' + heure(v.majLe) : ''}` : 'Démo / saisi'}</td></tr>`).join('') : '<tr><td colspan="8" class="vide">Aucun vol.</td></tr>'
     }</tbody></table></div></div>`;
 
+  $('demo').onclick = async () => {
+    if (!confirm('Recharger la démonstration ? Cela REMPLACE tous les vols (y compris importés), réservations, bagages et scans par des données fictives.')) return;
+    try { await api('POST', '/api/admin/demo/reset'); toast('Démonstration rechargée'); vueVols(); }
+    catch (e) { toast(e.message, 'err'); }
+  };
   if (!actif) return;
   $('sync').onclick = async () => {
     $('sync').disabled = true;
