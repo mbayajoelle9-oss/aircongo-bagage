@@ -1,0 +1,38 @@
+/* Page de connexion : ciel animé, avions en vol, carte en verre dépoli */
+.auth { position: relative; background: linear-gradient(160deg, #061a30 0%, #0b2a4a 45%, #14508c 100%); overflow: hidden; }
+.auth-marque { background: transparent; position: relative; z-index: 2; }
+.auth-marque::after { border-color: rgba(246, 194, 28, .10); animation: tourne 60s linear infinite; }
+.auth-marque h1 { background: linear-gradient(90deg, #fff, #9fd4f5); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.auth-marque img { box-shadow: 0 0 0 6px rgba(255,255,255,.12), 0 8px 24px rgba(0,0,0,.35); animation: flotte 5s ease-in-out infinite; }
+.auth-marque li { opacity: 0; animation: monte .7s ease forwards; }
+.auth-marque li:nth-child(1) { animation-delay: .3s } .auth-marque li:nth-child(2) { animation-delay: .5s } .auth-marque li:nth-child(3) { animation-delay: .7s }
+.auth-contenu { position: relative; z-index: 2; background: transparent; }
+.auth-carte { padding: 32px 30px; background: rgba(255,255,255,.96); backdrop-filter: blur(10px); border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.4); animation: monte .8s ease both; border: 1px solid rgba(255,255,255,.5); }
+.auth-carte h2 { color: var(--marine); }
+.auth-carte .btn.bloc { background: linear-gradient(90deg, #1c8fd0, #14508c); box-shadow: 0 6px 18px rgba(20,80,140,.35); transition: transform .15s, box-shadow .15s; }
+.auth-carte .btn.bloc:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(20,80,140,.45); }
+
+/* Ciel */
+.ciel { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.etoile { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff; opacity: .6; animation: scintille 3s ease-in-out infinite; }
+.nuage { position: absolute; height: 46px; width: 160px; border-radius: 50px; background: rgba(255,255,255,.07); filter: blur(6px); animation: derive linear infinite; }
+.nuage::before, .nuage::after { content: ""; position: absolute; background: inherit; border-radius: 50%; }
+.nuage::before { width: 70px; height: 70px; top: -30px; left: 24px; } .nuage::after { width: 54px; height: 54px; top: -20px; left: 82px; }
+.avion { color: #fff; position: absolute; left: -120px; font-size: 34px; filter: drop-shadow(0 4px 6px rgba(0,0,0,.4)); animation: vol linear infinite; will-change: transform; }
+.avion::before { content: ""; position: absolute; right: 90%; top: 52%; width: 220px; height: 2px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55)); transform: translateY(-50%); }
+.avion span { display: inline-block; transform: rotate(45deg); }
+.a1 { top: 14%; animation-duration: 26s; animation-delay: -4s; --pente: 40px }
+.a2 { top: 38%; font-size: 24px; animation-duration: 38s; animation-delay: -18s; opacity: .7; --pente: -30px }
+.a3 { top: 66%; font-size: 44px; animation-duration: 32s; animation-delay: -9s; --pente: -70px }
+.a4 { top: 82%; font-size: 20px; animation-duration: 46s; animation-delay: -30s; opacity: .55; --pente: 20px }
+.radar-deco { position: absolute; left: 6%; bottom: 8%; width: 180px; height: 180px; border-radius: 50%; border: 1px solid rgba(120,200,255,.25); background: repeating-radial-gradient(circle, transparent 0 28px, rgba(120,200,255,.12) 28px 29px); }
+.radar-deco::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, rgba(120,200,255,.35), transparent 25%); animation: tourne 4s linear infinite; }
+
+@keyframes vol { from { transform: translate3d(0, 0, 0) } to { transform: translate3d(calc(100vw + 360px), var(--pente), 0) } }
+@keyframes derive { from { transform: translateX(-250px) } to { transform: translateX(calc(100vw + 250px)) } }
+@keyframes scintille { 50% { opacity: .1 } }
+@keyframes tourne { to { transform: rotate(360deg) } }
+@keyframes flotte { 50% { transform: translateY(-6px) } }
+@keyframes monte { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+@media (max-width: 860px) { .radar-deco { display: none } .avion::before { width: 120px } }
+@media (prefers-reduced-motion: reduce) { .avion, .nuage, .etoile, .radar-deco::after, .auth-marque::after, .auth-marque img, .auth-marque li, .auth-carte { animation: none; opacity: 1 } }
