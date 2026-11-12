@@ -36,3 +36,11 @@
 @keyframes monte { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
 @media (max-width: 860px) { .radar-deco { display: none } .avion::before { width: 120px } }
 @media (prefers-reduced-motion: reduce) { .avion, .nuage, .etoile, .radar-deco::after, .auth-marque::after, .auth-marque img, .auth-marque li, .auth-carte { animation: none; opacity: 1 } }
+
+.etiquette-pro { display: inline-block; margin: 26px 0 0 14px; vertical-align: middle; padding: 5px 12px; border: 1px solid rgba(246,194,28,.5); border-radius: 999px; color: #f6c21c; font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+.auth-marque h1 em { font-style: normal; color: #f6c21c; -webkit-text-fill-color: #f6c21c; }
+.stats-auth { display: flex; gap: 14px; margin: 26px 0 4px; flex-wrap: wrap; }
+.stats-auth div { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); border-radius: 14px; padding: 12px 18px; backdrop-filter: blur(4px); min-width: 108px; }
+.stats-auth b { display: block; font-size: 24px; color: #fff; } .stats-auth span { font-size: 12px; color: #9fc3e4; }
+.badge-acces { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--bleu-pale); color: var(--bleu-fonce); font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; margin-bottom: 12px; }
+.note-app { margin: 18px 0 0; padding-top: 14px; border-top: 1px dashed var(--bord); }

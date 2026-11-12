@@ -17,17 +17,17 @@ const TYPES_LITIGE = { PERDU: 'Perdu', ENDOMMAGE: 'Endommagé', RETARDE: 'Retard
 const STATUTS_LITIGE = { OUVERT: 'Ouvert', EN_COURS: 'En cours', RESOLU: 'Résolu' };
 
 const PAGES = [
-  { id: 'radar', titre: 'Radar des vols', ico: 'avion', admin: false },
-  { id: 'dashboard', titre: 'Tableau de bord', ico: 'grille', admin: true },
-  { id: 'capacite', titre: 'Capacité & revente', ico: 'dollar', admin: true },
-  { id: 'vols', titre: 'Vols', ico: 'avion', admin: true },
-  { id: 'reservations', titre: 'Passagers', ico: 'equipe', admin: false },
-  { id: 'reclamations', titre: 'Réclamations', ico: 'alerte', admin: false },
-  { id: 'carte', titre: 'Carte & points', ico: 'epingle', admin: true },
-  { id: 'bagages', titre: 'Bagages', ico: 'bagage', admin: true },
-  { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true },
-  { id: 'utilisateurs', titre: 'Utilisateurs', ico: 'equipe', admin: true },
-  { id: 'scanner', titre: 'Scanner', ico: 'scan', admin: false },
+  { id: 'dashboard', titre: 'Tableau de bord', ico: 'grille', admin: true, groupe: 'Opérations' },
+  { id: 'radar', titre: 'Radar des vols', ico: 'avion', admin: false, groupe: 'Opérations' },
+  { id: 'vols', titre: 'Programme des vols', ico: 'avion', admin: true, groupe: 'Opérations' },
+  { id: 'bagages', titre: 'Suivi des bagages', ico: 'bagage', admin: true, groupe: 'Opérations' },
+  { id: 'scanner', titre: 'Scan en escale', ico: 'scan', admin: false, groupe: 'Opérations' },
+  { id: 'capacite', titre: 'Soute & revente', ico: 'dollar', admin: true, groupe: 'Commercial' },
+  { id: 'reservations', titre: 'Manifeste passagers', ico: 'equipe', admin: false, groupe: 'Commercial' },
+  { id: 'reclamations', titre: 'Réclamations', ico: 'alerte', admin: false, groupe: 'Service client' },
+  { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true, groupe: 'Service client' },
+  { id: 'carte', titre: 'Escales & points de scan', ico: 'epingle', admin: true, groupe: 'Administration' },
+  { id: 'utilisateurs', titre: 'Équipes & accès', ico: 'equipe', admin: true, groupe: 'Administration' },
 ].filter((p) => EST_ADMIN || !p.admin).sort((a, b) => (EST_ADMIN ? 0 : (a.id === 'radar') - (b.id === 'radar')));
 
 let nettoyages = [];
@@ -40,7 +40,12 @@ $('sortir').innerHTML = `${icone('sortie')} Se déconnecter`;
 $('sortir').onclick = () => { session.clear(); location.href = '/index.html'; };
 
 function menu(actif) {
-  $('nav').innerHTML = PAGES.map((p) => `<a href="#/${p.id}" class="${p.id === actif ? 'actif' : ''}">${icone(p.ico)}<span>${p.titre}</span></a>`).join('');
+  let g = '';
+  $('nav').innerHTML = PAGES.map((p) => {
+    const t = !document.body.classList.contains('mobile') && p.groupe !== g ? `<div class="groupe">${p.groupe}</div>` : '';
+    g = p.groupe;
+    return `${t}<a href="#/${p.id}" class="${p.id === actif ? 'actif' : ''}">${icone(p.ico)}<span>${p.titre}</span></a>`;
+  }).join('');
 }
 
 // ---------- Routage ----------
@@ -67,44 +72,58 @@ const entete = (titre, sous, droite = '') =>
 // Tableau de bord
 // ============================================================
 async function vueDashboard() {
-  vue.innerHTML =
-    entete('Tableau de bord', 'Situation des bagages en temps réel', '<span class="muted petit" id="maj"></span>') +
-    '<div class="kpis" id="kpis"></div>' +
-    '<div class="grille2"><div class="carte"><h2>Répartition par étape</h2><div id="barres" class="barres"></div></div>' +
-    '<div class="carte"><h2>Alertes</h2><div id="alertes"></div></div></div>' +
-    '<div class="carte"><h2>Activité récente</h2><ul class="fil" id="fil"></ul></div>';
+  const h = new Date().getHours();
+  vue.innerHTML = `<section class="occ-hero"><span class="avion-deco">✈</span>
+      <div><h1>${h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'}, ${esc((moi.nom ?? '').split(' ')[0])}</h1>
+      <p><span class="live-point"></span>Centre de contrôle des opérations bagages · flotte, escales et soute en temps réel.</p></div>
+      <div class="occ-heure"><b id="horloge">--:--:--</b><span>Heure de Kinshasa · <span id="maj">…</span></span></div></section>
+    <div class="kpis occ" id="kpis"></div>
+    <div class="occ-grille"><div>
+      <section class="tableau-departs"><h2>Tableau des départs <small id="cptVols"></small></h2><div class="tableau"><table><thead><tr><th>Vol</th><th>Trajet</th><th>Départ</th><th>Statut</th><th>Progression</th><th>Soute</th><th>Bag.</th></tr></thead><tbody id="departs"></tbody></table></div></section>
+      <div class="carte"><h2>Parcours des bagages</h2><div class="flux" id="flux"></div></div>
+    </div><div>
+      <div class="carte"><h2>Alertes opérationnelles</h2><div id="alertes"></div></div>
+      <div class="carte"><h2>Activité en escale</h2><ul class="fil" id="fil"></ul></div>
+    </div></div>`;
+
+  const tic = () => { $('horloge').textContent = new Date().toLocaleTimeString('fr-FR', { timeZone: 'Africa/Kinshasa' }); };
+  tic(); const hor = setInterval(tic, 1000); surDepart(() => clearInterval(hor));
+  const PHASES = { AU_SOL: ['Au sol', 'bleu'], EN_VOL: ['En vol', 'vert'], ARRIVE: ['Arrivé', 'gris'], ANNULE: ['Annulé', 'rouge'] };
+  const kpi = (ico, t, v, c = '', sous = '') => `<div class="kpi ${c}"><span class="ico-kpi">${icone(ico)}</span><span>${t}</span><b>${esc(v)}</b>${sous ? `<small>${esc(sous)}</small>` : ''}</div>`;
 
   const charger = async () => {
-    const [s, a, b, cap] = await Promise.all([api('GET', '/api/admin/stats'), api('GET', '/api/admin/alertes'), api('GET', '/api/admin/bagages'), api('GET', '/api/admin/capacite')]);
+    const [s, a, b, cap, radar] = await Promise.all([api('GET', '/api/admin/stats'), api('GET', '/api/admin/alertes'), api('GET', '/api/admin/bagages'), api('GET', '/api/admin/capacite'), api('GET', '/api/radar', undefined, { auth: false }).catch(() => ({ vols: [] }))]);
     const libre = cap.vols.reduce((n, v) => n + v.libreKg, 0), potentiel = cap.vols.reduce((n, v) => n + v.potentielUsd, 0), fret = cap.vols.reduce((n, v) => n + v.recettesFretUsd, 0);
-    const p = s.parStatut;
+    const p = s.parStatut, vols = radar.vols;
     const circulation = ['ENREGISTRE', 'CHARGE', 'TRANSIT', 'ARRIVE'].reduce((n, k) => n + (p[k] ?? 0), 0);
+    const nb = (ph) => vols.filter((v) => v.phase === ph).length;
     $('kpis').innerHTML = [
-      ['Bagages suivis', s.totalBagages, ''],
-      ['En circulation', circulation, ''],
-      ['Alertes', s.alertes, s.alertes ? 'rouge' : 'vert'],
-      ['Litiges ouverts', s.litigesOuverts, s.litigesOuverts ? 'jaune' : 'vert'],
-      ['Recettes excédents', usd(s.recettesExcedentUsd), 'vert'],
-      ['Espace libre à revendre', `${Math.round(libre)} kg · ${usd(potentiel)}`, libre > 0 ? 'jaune' : ''],
-      ['Recettes fret', usd(fret), 'vert'],
-    ].map(([t, v, c]) => `<div class="kpi ${c}"><span>${t}</span><b>${esc(v)}</b></div>`).join('');
+      kpi('avion', 'Avions en vol', nb('EN_VOL'), 'vert', `${nb('AU_SOL')} au sol · ${vols.length} au programme`),
+      kpi('bagage', 'Bagages suivis', s.totalBagages, '', `${circulation} en circulation`),
+      kpi('alerte', 'Alertes', s.alertes, s.alertes ? 'rouge' : 'vert', s.alertes ? 'bagages sans mouvement' : 'tout est fluide'),
+      kpi('alerte', 'Litiges ouverts', s.litigesOuverts, s.litigesOuverts ? 'jaune' : 'vert'),
+      kpi('dollar', 'Recettes', usd(s.recettesExcedentUsd + fret), 'vert', `excédents ${usd(s.recettesExcedentUsd)} · fret ${usd(fret)}`),
+      kpi('grille', 'Soute à revendre', `${Math.round(libre)} kg`, libre > 0 ? 'jaune' : '', `potentiel ${usd(potentiel)}`),
+    ].join('');
 
-    const ordre = [['PRE_ENREGISTRE', 'pre'], ['ENREGISTRE', ''], ['CHARGE', ''], ['TRANSIT', ''], ['ARRIVE', 'arr'], ['LIVRE', 'fin']];
-    $('barres').innerHTML = ordre.map(([k, c]) => {
-      const n = p[k] ?? 0;
-      const pct = s.totalBagages ? Math.round((n / s.totalBagages) * 100) : 0;
-      return `<div class="barre ${c}"><span>${esc(STATUTS[k].label)}</span><div class="piste"><i style="width:${pct}%"></i></div><b>${n}</b></div>`;
-    }).join('');
+    $('cptVols').textContent = `${vols.length} vol(s)`;
+    $('departs').innerHTML = vols.length ? vols.slice(0, 10).map((v) => { const [l, c] = PHASES[v.phase] ?? [v.libellePhase, 'gris'];
+      return `<tr><td class="num">${esc(v.numero)}</td><td>${esc(v.depart)} → ${esc(v.arrivee)}</td><td>${v.departTs ? heure(v.departTs) : esc(v.heureDepart ?? '—')}</td><td><span class="pill ${c}">${esc(l)}</span></td>
+        <td><span class="mini-piste"><i style="width:${Math.round((v.progression ?? 0) * 100)}%"></i></span></td><td><span class="mini-soute"><i style="width:${Math.min(100, v.remplissagePct ?? 0)}%"></i></span>${Math.round(v.remplissagePct ?? 0)}%</td><td>${v.nbBagages}</td></tr>`; }).join('')
+      : '<tr><td colspan="7" class="vide" style="color:#8fb2d6">Aucun vol au programme. Importez des vols dans « Programme des vols ».</td></tr>';
+
+    const ordre = ['PRE_ENREGISTRE', 'ENREGISTRE', 'CHARGE', 'TRANSIT', 'ARRIVE', 'LIVRE'];
+    $('flux').innerHTML = ordre.map((k) => `<div class="etape-flux ${(p[k] ?? 0) > 0 ? 'actif' : ''}"><b>${p[k] ?? 0}</b><span>${esc(STATUTS[k].label)}</span></div>`).join('');
 
     $('alertes').innerHTML = a.length
       ? a.map((x) => `<div class="alerte-ligne"><span>${icone('alerte')}</span><div><b>${esc(x.code)}</b> · ${esc(x.passager)}<br><span class="petit">${esc(x.dernierStatut)} à ${esc(x.station)} depuis ${x.minutesSansMouvement} min</span></div></div>`).join('')
-      : '<div class="ok-ligne">Aucun bagage bloqué.</div>';
+      : '<div class="ok-ligne">Aucun bagage bloqué : toutes les escales sont fluides.</div>';
 
     const evenements = b.flatMap((x) => x.scans.map((sc) => ({ ...sc, passager: x.passager }))).sort((m, n) => n.ts.localeCompare(m.ts)).slice(0, 8);
     $('fil').innerHTML = evenements.length
-      ? evenements.map((e) => `<li><span class="t">${heure(e.ts)}</span><span><b class="mono">${esc(e.code)}</b> · ${esc(e.passager)}<br><span class="muted petit">${esc(STATUTS[e.etape]?.label ?? e.etape)} · ${esc(e.pointNom ?? e.station)} (${esc(e.station)}) · ${esc(e.agent)}${e.source === 'RFID' ? ' · <b>RFID</b>' : ''}</span></span></li>`).join('')
+      ? evenements.map((e) => `<li><span class="t">${heure(e.ts)}</span><span><b class="mono">${esc(e.code)}</b> · ${esc(e.passager)}<br><span class="muted petit">${esc(STATUTS[e.etape]?.label ?? e.etape)} · ${esc(e.pointNom ?? e.station)} (${esc(e.station)})</span></span></li>`).join('')
       : '<li class="muted">Aucun mouvement pour le moment.</li>';
-    $('maj').textContent = 'Mis à jour à ' + heure(new Date().toISOString());
+    $('maj').textContent = 'maj ' + heure(new Date().toISOString());
   };
   await charger();
   const t = setInterval(() => { if (!document.hidden) charger().catch(() => {}); }, 5000);
@@ -117,7 +136,7 @@ async function vueDashboard() {
 async function vueBagages() {
   const liste = await api('GET', '/api/admin/bagages');
   vue.innerHTML =
-    entete('Bagages', `${liste.length} bagage(s) enregistré(s)`, `<button class="btn" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
+    entete('Suivi des bagages', `${liste.length} bagage(s) enregistré(s)`, `<button class="btn" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
     `<div class="carte"><div class="outils">
       <input class="input" id="q" placeholder="Rechercher un code, un passager, un vol…" aria-label="Rechercher">
       <select class="input" id="f" style="max-width:200px" aria-label="Filtrer par statut"><option value="">Tous les statuts</option>${Object.entries(STATUTS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>
@@ -177,7 +196,7 @@ async function vueLitiges() {
 async function vueUtilisateurs() {
   const liste = await api('GET', '/api/admin/utilisateurs');
   vue.innerHTML =
-    entete('Utilisateurs', 'Comptes du personnel et rôles', `<button class="btn" id="nouveau">${icone('plus')} Nouvel utilisateur</button>`) +
+    entete('Équipes & accès', 'Comptes du personnel et rôles', `<button class="btn" id="nouveau">${icone('plus')} Nouvel utilisateur</button>`) +
     `<div class="carte"><div class="tableau"><table><thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Station</th><th>État</th><th>Dernière connexion</th><th></th></tr></thead><tbody>${
       liste.map((u) => `<tr><td><b>${esc(u.nom)}</b></td><td>${esc(u.email)}</td><td>${u.role === 'ADMIN' ? 'Administrateur' : 'Agent'}</td><td>${esc(u.station ?? '—')}</td><td>${u.actif ? '<span class="pill vert">Actif</span>' : '<span class="pill rouge">Désactivé</span>'}</td><td>${dateHeure(u.derniereConnexion)}</td><td style="white-space:nowrap">
         <button class="btn sec mini" data-mdp="${esc(u.id)}" data-nom="${esc(u.nom)}">Mot de passe</button>
@@ -235,7 +254,7 @@ async function vueCapacite() {
   const { vols, ventes } = await api('GET', '/api/admin/capacite');
   const somme = (k) => vols.reduce((n, v) => n + v[k], 0);
   vue.innerHTML =
-    entete('Capacité & revente', 'Chaque kilo libre en soute est une recette possible', '') +
+    entete('Soute & revente', 'Chaque kilo libre en soute est une recette possible', '') +
     `<div class="kpis">${[
       ['Espace libre', `${Math.round(somme('libreKg'))} kg`, 'jaune'],
       ['Potentiel de revente', usd(somme('potentielUsd')), 'jaune'],
@@ -296,7 +315,7 @@ async function vueCapacite() {
 const MODELE_CSV = 'pnr;nom;classe;vol;date;telephone;canal\nACG501;Mbemba Joseph;ECO;DEMO-205;;0812345678;SMS\nACV502;Kabila Sarah;VIP;DEMO-205;;0899999999;WHATSAPP\n';
 async function vueReservations() {
   const vols = EST_ADMIN ? (await api('GET', '/api/admin/vols')).vols : [];
-  vue.innerHTML = entete('Passagers', 'Créez une réservation ou importez la liste des passagers d’un vol (fichier CSV)') +
+  vue.innerHTML = entete('Manifeste passagers', 'Créez une réservation ou importez la liste des passagers d’un vol (fichier CSV)') +
     `<div class="grille2"><div class="carte"><h2>Nouvelle réservation</h2><form id="fRes">
       <label class="champ">Numéro de réservation (PNR)<input class="input" name="pnr" required minlength="4" maxlength="10" style="text-transform:uppercase"></label>
       <label class="champ">Nom du passager<input class="input" name="nom" required minlength="2" maxlength="80"></label>
@@ -363,7 +382,7 @@ async function vueReclamations() {
 // Radar des vols (carte type Flightradar : bagages en vol, espace libre au sol)
 // ============================================================
 async function vueRadar() {
-  vue.innerHTML = entete('Radar des vols', 'Cliquez sur un avion : bagages à bord s’il vole, espace libre en soute s’il est au sol');
+  vue.innerHTML = entete('Radar des vols', 'Trajectoires en direct · bagages à bord s’il vole, espace libre en soute s’il est au sol');
   const zone = document.createElement('div');
   vue.appendChild(zone);
   surDepart(await lancerRadar(zone, { personnel: true }));
@@ -379,7 +398,7 @@ async function vueVols() {
   const { actif, fournisseur, vols } = await api('GET', '/api/admin/vols');
   const aujourdhui = new Date().toISOString().slice(0, 10);
   vue.innerHTML =
-    entete('Vols', 'Horaires, statuts et retards récupérés automatiquement', `<button class="btn sec" id="demo">Recharger la démo</button> ` + (actif ? `<button class="btn sec" id="sync">${icone('avion')} Actualiser les vols</button>` : '')) +
+    entete('Programme des vols', 'Horaires, statuts et retards récupérés automatiquement', `<button class="btn sec" id="demo">Recharger la démo</button> ` + (actif ? `<button class="btn sec" id="sync">${icone('avion')} Actualiser les vols</button>` : '')) +
     (actif
       ? `<div class="carte"><h2>Importer les vols d’une compagnie</h2><p class="muted petit" style="margin:0 0 6px">Tapez le nom de la compagnie (ex. Kenya Airways) : ses vols, horaires et statuts sont récupérés automatiquement (source : ${esc(fournisseur)}) et apparaissent sur le radar.</p>
         <form id="fCie" class="rang" style="align-items:end"><label class="champ" style="flex:1">Compagnie<input class="input" name="compagnie" list="listeCies" required placeholder="Ex. Kenya Airways" autocomplete="off"><datalist id="listeCies"></datalist></label><button class="btn" type="submit">Importer ses vols</button></form></div>
@@ -442,7 +461,7 @@ const NOMS_ETAPES = { ENREGISTRE: 'Enregistrement', CHARGE: 'Chargement', TRANSI
 
 async function vueCarte() {
   vue.innerHTML =
-    entete('Carte & points de scan', 'Chaque point où un bagage est scanné, sur la carte OpenStreetMap', `<button class="btn" id="nouveauPoint">${icone('plus')} Nouveau point</button>`) +
+    entete('Escales & points de scan', 'Chaque point où un bagage est scanné, sur la carte OpenStreetMap', `<button class="btn" id="nouveauPoint">${icone('plus')} Nouveau point</button>`) +
     `<div class="carte-grille"><div class="carte"><div class="outils"><input class="input" id="rech" placeholder="Code bagage (AC123456) pour voir son trajet" aria-label="Code bagage" style="max-width:none;flex:1;width:auto;min-width:0"><button class="btn sec" id="tracer">Tracer</button><button class="btn sec" id="effacer" hidden>Effacer</button></div>
       <div id="msgCarte" class="muted petit"></div>${zoneCarte(520)}<p class="legende-carte">Les pastilles bleues numérotées indiquent le nombre de bagages dont le dernier passage a eu lieu à ce point. Cliquez sur un point pour le détail.</p></div>
     <div class="carte"><h2>Points de scan</h2><ul class="liste-points" id="lstPoints"></ul></div></div>`;
@@ -527,7 +546,7 @@ async function vueScanner() {
   let bagageCourant = null;
 
   vue.innerHTML =
-    entete('Scanner un bagage', EST_ADMIN ? 'Mode administrateur : vous choisissez la station.' : `Station ${moi.station} · ${STATIONS_INFO[moi.station]?.nom ?? ''} · ${moi.nom}`, `<button class="btn sec" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
+    entete('Scan en escale', EST_ADMIN ? 'Mode administrateur : vous choisissez la station.' : `Station ${moi.station} · ${STATIONS_INFO[moi.station]?.nom ?? ''} · ${moi.nom}`, `<button class="btn sec" id="etiq">${icone('plus')} Nouvelle étiquette</button>`) +
     `<div class="grille2"><div class="carte"><h2>Scan</h2>
       ${EST_ADMIN ? `<label class="champ">Station<select class="input" id="st">${STATIONS.map((c) => `<option value="${c}">${c} · ${esc(STATIONS_INFO[c].nom)}</option>`).join('')}</select></label>` : ''}
       <label class="champ">Point de scan (où vous vous trouvez)</label><div class="points-liste" id="lstPts"></div>

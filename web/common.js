@@ -245,3 +245,6 @@ export async function montrerCarte(el, { scans = [], points = [], conserver = fa
 }
 
 export const CANAUX = { SMS: 'SMS', WHATSAPP: 'WhatsApp', WEB: 'Portail' };
+
+// Nettoyage : l'ancienne version installable (PWA) n'existe plus, on retire son service worker des navigateurs.
+try { navigator.serviceWorker?.getRegistrations().then((l) => l.forEach((r) => r.unregister())); } catch { /* sans effet */ }

@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#0b2a4a">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/login.css">
 <script src="/config.js"></script>
 </head>
@@ -16,12 +17,18 @@
   <aside class="auth-marque">
     <div>
       <img src="/logo.png" alt="Logo Air Congo">
-      <h1>Traçabilité des bagages</h1>
-      <p>Suivez chaque bagage de l'enregistrement à la remise au passager, supprimez les files d'attente et maîtrisez les excédents.</p>
+      <span class="etiquette-pro">Centre de contrôle des opérations</span>
+      <h1>Traçabilité des bagages <em>en temps réel</em></h1>
+      <p>De l'enregistrement à la remise au passager : chaque bagage est suivi à chaque escale, la soute est optimisée et les réclamations sont traitées sans file d'attente.</p>
+      <div class="stats-auth">
+        <div><b>6</b><span>escales suivies</span></div>
+        <div><b>100&nbsp;%</b><span>bagages scannés</span></div>
+        <div><b>RFID</b><span>cabine VIP</span></div>
+      </div>
       <ul>
-        <li><b>●</b><span>Suivi en temps réel par scan, et par RFID pour les passagers VIP</span></li>
-        <li><b>●</b><span>Chaque passage en station est scanné : le passager est alerté à chaque étape, même sans smartphone</span></li>
-        <li><b>●</b><span>Litiges et excédents gérés au même endroit</span></li>
+        <li><b>●</b><span>Suivi par scan à chaque escale, RFID pour les passagers VIP</span></li>
+        <li><b>●</b><span>Radar des vols : bagages à bord et espace libre en soute à revendre</span></li>
+        <li><b>●</b><span>Litiges, excédents et réclamations gérés au même endroit</span></li>
       </ul>
     </div>
     <div class="signature">Solution développée par Aquila Nexus</div>
@@ -29,14 +36,9 @@
 
   <main class="auth-contenu">
     <div class="auth-carte">
-      <h2>Bienvenue</h2>
-      <p class="muted">Connectez-vous pour accéder à votre espace.</p>
-      <a href="/reclamation.html" class="lien-radar" style="display:block;margin-bottom:10px;padding:10px 12px;border:1px solid #f0c9c7;border-radius:10px;background:#fdecea;color:#8a1f1a;text-decoration:none;font-size:14px"><b>Réclamation bagage</b> — déclarez sans file d’attente (VIP prioritaires)</a>
-      <a href="/radar.html" class="lien-radar" style="display:block;margin-bottom:14px;padding:10px 12px;border:1px solid var(--bord);border-radius:10px;background:var(--bleu-pale);color:var(--marine);text-decoration:none;font-size:14px"><b>✈ Radar des vols</b> — voir les avions en direct et acheter de l’espace en soute</a>
-      <div class="onglets" role="tablist">
-        <button type="button" class="on" data-onglet="personnel" role="tab">Personnel Air Congo</button>
-        <button type="button" data-onglet="passager" role="tab">Passager</button>
-      </div>
+      <div class="badge-acces">Accès professionnel</div>
+      <h2>Bienvenue à bord</h2>
+      <p class="muted">Connectez-vous à la console Air Congo réservée au personnel autorisé.</p>
       <div id="info" class="info" hidden></div>
 
       <form id="fPersonnel" autocomplete="on">
@@ -50,16 +52,7 @@
         <div id="err1" class="erreur" hidden></div>
         <p><button class="btn bloc" id="go1" type="submit">Se connecter</button></p>
       </form>
-
-      <form id="fPassager" hidden>
-        <p class="muted petit" style="margin-top:16px">Suivez vos bagages avec votre numéro de réservation et votre nom, sans créer de compte.</p>
-        <label class="champ" for="pnr">Numéro de réservation</label>
-        <input class="input" id="pnr" autocapitalize="characters" autocomplete="off" required placeholder="ex. ACG123" maxlength="12">
-        <label class="champ" for="nom">Nom du passager</label>
-        <input class="input" id="nom" autocomplete="family-name" required placeholder="ex. Mbemba">
-        <div id="err2" class="erreur" hidden></div>
-        <p><button class="btn bloc" id="go2" type="submit">Suivre mes bagages</button></p>
-      </form>
+      <p class="muted petit note-app">Passagers : suivez vos bagages et déposez vos réclamations depuis l'application mobile <b>Air Congo Bagages</b>.</p>
     </div>
   </main>
 </div>
@@ -74,12 +67,6 @@ if (new URLSearchParams(location.search).has('expire')) {
   $('info').textContent = 'Votre session a expiré. Veuillez vous reconnecter.';
 }
 
-document.querySelectorAll('[data-onglet]').forEach((b) => (b.onclick = () => {
-  document.querySelectorAll('[data-onglet]').forEach((x) => x.classList.toggle('on', x === b));
-  const pers = b.dataset.onglet === 'personnel';
-  $('fPersonnel').hidden = !pers;
-  $('fPassager').hidden = pers;
-}));
 $('voir').onclick = () => {
   const visible = $('mdp').type === 'text';
   $('mdp').type = visible ? 'password' : 'text';
@@ -100,20 +87,6 @@ $('fPersonnel').onsubmit = async (e) => {
   }
 };
 
-$('fPassager').onsubmit = async (e) => {
-  e.preventDefault();
-  $('err2').hidden = true;
-  const pnr = $('pnr').value.trim().toUpperCase(), nom = $('nom').value.trim();
-  $('go2').disabled = true; $('go2').textContent = 'Recherche…';
-  try {
-    await api('GET', `/api/suivi/${encodeURIComponent(pnr)}?nom=${encodeURIComponent(nom)}`, null, { auth: false });
-    sessionStorage.setItem('ac_pax', JSON.stringify({ pnr, nom }));
-    location.href = '/passager.html';
-  } catch (err) {
-    $('err2').textContent = err.message; $('err2').hidden = false;
-    $('go2').disabled = false; $('go2').textContent = 'Suivre mes bagages';
-  }
-};
 </script>
 </body>
 </html>
