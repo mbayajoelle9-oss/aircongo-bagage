@@ -22,10 +22,10 @@ export default function Passager({ passager, initial, quitter }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.fond }}>
-      <EnTete titre={d?.nom ?? 'Mon voyage'} sous={d ? `Réservation ${d.pnr} · ${d.vol.numero} ${d.vol.depart}→${d.vol.arrivee}` : ''} onQuitter={quitter} />
+      <EnTete titre={d?.nom ?? 'Mon voyage'} sous={d ? `Réservation ${d.pnr} · ${d.vol.numero} ${d.vol.depart} ✈️ ${d.vol.arrivee}` : ''} onQuitter={quitter} />
       <View style={{ flex: 1 }}>
         {onglet === 'bagages' ? <Bagages d={d} err={err} rafr={rafr} onRefresh={async () => { setRafr(true); await charger(); setRafr(false); }} passager={passager} recharger={charger} /> : null}
-        {onglet === 'radar' ? <Radar passager={passager} mesBagages={mesBagages} volInitial={null} /> : null}
+        {onglet === 'radar' ? <Radar passager={passager} mesBagages={mesBagages} numeroVol={d?.vol?.numero} /> : null}
         {onglet === 'reclamation' ? <Reclamation passager={passager} vol={d?.vol} /> : null}
         {onglet === 'alertes' ? <Alertes d={d} /> : null}
       </View>
@@ -65,7 +65,7 @@ function Bagages({ d, err, rafr, onRefresh, passager, recharger }) {
       <Erreur>{err}</Erreur>
       <Carte style={{ backgroundColor: C.bleu }}>
         <Text style={{ color: '#b8cbe0', fontSize: 12 }}>{d.classe} · vol {d.vol.numero}</Text>
-        <Text style={{ color: '#fff', fontSize: 26, fontWeight: '800' }}>{d.vol.depart} → {d.vol.arrivee}</Text>
+        <Text style={{ color: '#fff', fontSize: 26, fontWeight: '800' }}>{d.vol.depart} ✈️ {d.vol.arrivee}</Text>
         <Text style={{ color: '#fff' }}>Départ {d.vol.heureDepart}{d.vol.libelleStatut ? ` · ${d.vol.libelleStatut}` : ''}{d.vol.retardMin ? ` (+${d.vol.retardMin} min)` : ''}</Text>
         <Text style={{ color: '#b8cbe0', marginTop: 6 }}>{d.bagages.length} bagage(s) · {ex.totalKg} kg · franchise {ex.franchiseKg} kg</Text>
       </Carte>

@@ -135,7 +135,7 @@ test('litiges : création par le passager, suivi par la compagnie', async () => 
   const { call, repo, AD } = await demarrer();
   const res = await repo.findOne('reservations', { pnr: 'ACG123' });
   const bag = (await repo.find('bagages', { reservationId: res.id }))[0];
-  assert.equal((await call('POST', '/api/suivi/ACV777/litiges', { body: { nom: 'Kabila', code: bag.code, type: 'PERDU', description: 'Bagage non reçu' } })).status, 403);
+  assert.equal((await call('POST', '/api/suivi/ACV777/litiges', { body: { nom: 'Mutombo', code: bag.code, type: 'PERDU', description: 'Bagage non reçu' } })).status, 403);
   const ok = await call('POST', '/api/suivi/ACG123/litiges', { body: { nom: 'Mbemba', code: bag.code, type: 'RETARDE', description: 'Toujours pas arrivé' } });
   assert.equal(ok.json.numero, 'LIT-0001');
   assert.equal((await call('PATCH', '/api/admin/litiges/LIT-0001', { token: AD, body: { statut: 'EN_COURS' } })).json.statut, 'EN_COURS');
@@ -184,7 +184,7 @@ test('validations et réinitialisation démo (comptes conservés)', async () => 
 
 test('alertes passager à chaque scan + stations connues', async () => {
   const { call, AD } = await demarrer();
-  const v = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json;
+  const v = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Mutombo' } })).json;
   assert.equal(v.canalAlerte, 'WHATSAPP');
   assert.equal(v.notifications.length, 6); // 2 bagages x (comptoir, tri, chargement)
   assert.match(v.notifications[0].message, /^Air Congo : votre bagage AC\d{6} .* \(FIH\)/);
@@ -207,12 +207,12 @@ test('points de scan GPS : gestion par l\'admin, trajet du bagage, carte en dire
   assert.equal((await call('POST', '/api/admin/points', { token: AD, body: { nom: 'Point', station: 'ZZZ', etape: 'CHARGE', lat: 1, lon: 1 } })).status, 400);
   const maj = await call('PATCH', `/api/admin/points/${cree.json.id}`, { token: AD, body: { lat: -4.39, lon: 15.45, actif: false } });
   assert.equal(maj.json.lat, -4.39);
-  assert.equal((await call('POST', '/api/agent/scans', { token: AD, body: { code: 'AC000000', pointId: cree.json.id } })).status, 404);
+  assert.equal((await call('POST', '/api/agent/scans', { token: AD, body: { code: 'AC000000', pointId: cree.json.id } })).status, 409);
   const bag = (await repo.find('bagages')).find((b) => b.niveau === 'VIP');
   const inactif = await call('POST', '/api/agent/scans', { token: AD, body: { code: bag.code, pointId: cree.json.id } });
   assert.equal(inactif.status, 409); // point désactivé
   // le trajet du bagage VIP : 3 points avec coordonnées, source RFID aux portiques
-  const vue = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json;
+  const vue = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Mutombo' } })).json;
   const sc = vue.bagages[0].scans;
   assert.deepEqual(sc.map((x) => x.pointNom), ['Comptoir d’enregistrement', 'Tri bagages et sûreté', 'Chargement avion']);
   assert.deepEqual(sc.map((x) => x.source), ['SCAN', 'RFID', 'RFID']);
@@ -302,7 +302,7 @@ test('lecteurs RFID : authentification par clé, passages enregistrés, relectur
   assert.equal(r2.ok, true); assert.equal(r2.statut, 'ARRIVE'); // avance à l'étape suivante
   assert.equal(r3.ok, false); // bagage inconnu
   assert.equal(r4.ok, false); // point inconnu
-  const sc = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Kabila' } })).json.bagages.find((x) => x.code === b.code).scans.at(-1);
+  const sc = (await call('GET', '/api/suivi/ACV777', { query: { nom: 'Mutombo' } })).json.bagages.find((x) => x.code === b.code).scans.at(-1);
   assert.equal(sc.source, 'RFID');
   assert.equal(sc.agent, 'Portique FIH-SOU');
   // désactivé sans clé configurée
@@ -474,7 +474,7 @@ test('radar : recherche par numéro de vol avec tiret', async () => {
 test('réclamations bagages en ligne : VIP vérifié prioritaire, suivi, traitement par le personnel', async () => {
   const { call, AG } = await demarrer();
   const aujourdhui = new Date().toISOString().slice(0, 10);
-  const base = { nom: 'Kabila Sarah', vol: 'demo-101', date: aujourdhui, reference: 'acv777', numeroBillet: '071-2345678901', description: 'Bagage non reçu', codeEtiquette: 'ac538480' };
+  const base = { nom: 'Mutombo Sarah', vol: 'demo-101', date: aujourdhui, reference: 'acv777', numeroBillet: '071-2345678901', description: 'Bagage non reçu', codeEtiquette: 'ac538480' };
   const poster = (b) => call('POST', '/api/reclamations', { body: b });
   assert.equal((await poster({ ...base, nom: '' })).status, 400);
   assert.equal((await poster({ ...base, vol: '!' })).status, 400);
@@ -495,7 +495,7 @@ test('réclamations bagages en ligne : VIP vérifié prioritaire, suivi, traitem
   // Un faux nom sur un PNR VIP ne donne pas la priorité
   assert.equal((await poster({ ...base, nom: 'Autre Personne' })).json.priorite, 'NORMALE');
   // Suivi par le passager
-  assert.equal((await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'kabila sarah' } })).json.libelleStatut, 'Nouvelle');
+  assert.equal((await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'mutombo sarah' } })).json.libelleStatut, 'Nouvelle');
   assert.equal((await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'Pirate' } })).status, 404);
   // Personnel : la liste met le VIP en premier ; le public n'y a pas accès
   assert.equal((await call('GET', '/api/agent/reclamations')).status, 401);
@@ -506,7 +506,42 @@ test('réclamations bagages en ligne : VIP vérifié prioritaire, suivi, traitem
   const maj = await call('PATCH', `/api/agent/reclamations/${vip.json.numero}`, { token: AG, body: { statut: 'EN_COURS', note: 'Bagage localisé à Lubumbashi', public: true } });
   assert.equal(maj.status, 200);
   assert.equal((await call('PATCH', `/api/agent/reclamations/${vip.json.numero}`, { token: AG, body: { statut: 'BIDON' } })).status, 400);
-  const s = (await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'Kabila Sarah' } })).json;
+  const s = (await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'Mutombo Sarah' } })).json;
   assert.equal(s.statut, 'EN_COURS');
   assert.equal(s.reponse, 'Bagage localisé à Lubumbashi');
+});
+
+test('mbindiri : bagage retrouvé sans enregistrement ni chargement, ou étiquette inconnue → alerte fraude', async () => {
+  const { call, AG, AD, repo } = await demarrer();
+  const pt = async (c) => (await repo.findOne('points', { code: c })).id;
+  const [ARR, CHG] = [await pt('FIH-SOU'), await pt('FIH-CHG')];
+  // 1) étiquette inconnue présentée à l'arrivée : rejetée ET alerte critique
+  const inc = await call('POST', '/api/agent/scans', { token: AG, body: { code: 'AC123456', pointId: ARR } });
+  assert.equal(inc.status, 404); assert.match(inc.json.erreur, /ALERTE FRAUDE FR-/);
+  // 2) étiquette inconnue chargée en soute
+  const incC = await call('POST', '/api/agent/scans', { token: AG, body: { code: 'AC654321', pointId: CHG } });
+  assert.match(incC.json.erreur, /Ne chargez pas/);
+  // 3) bagage connu mais jamais enregistré ni chargé, scanné à l'arrivée
+  const res = await repo.findOne('reservations', { pnr: 'ACB456' });
+  const b = (await call('POST', '/api/agent/bagages', { token: AG, body: { pnr: 'ACB456', poidsKg: 10 } })).json;
+  const sc = await call('POST', '/api/agent/scans', { token: AG, body: { code: b.code, pointId: ARR } });
+  assert.equal(sc.status, 200);
+  assert.equal(sc.json.fraude.type, 'NON_ENREGISTRE_NON_CHARGE'); assert.equal(sc.json.fraude.gravite, 'CRITIQUE');
+  assert.match(sc.json.avertissement, /ni enregistré ni chargé/);
+  // un bagage normal ne déclenche rien
+  const v1 = (await repo.find('bagages', { reservationId: (await repo.findOne('reservations', { pnr: 'ACG123' })).id }))[0];
+  const ok = await call('POST', '/api/agent/scans', { token: AG, body: { code: v1.code, pointId: ARR } });
+  assert.equal(ok.json.fraude, null);
+  // liste admin : 3 nouvelles alertes + celle de la démo, critiques d'abord ; le personnel d'escale n'y accède pas
+  const l = (await call('GET', '/api/admin/fraudes', { token: AD })).json;
+  assert.ok(l.length >= 4 && l[0].gravite === 'CRITIQUE');
+  assert.equal((await call('GET', '/api/admin/fraudes', { token: AG })).status, 403);
+  assert.ok((await call('GET', '/api/admin/stats', { token: AD })).json.fraudesOuvertes >= 4);
+  // traitement
+  const f = l.find((x) => x.code === b.code);
+  const m = (await call('PATCH', `/api/admin/fraudes/${f.numero}`, { token: AD, body: { statut: 'CONFIRMEE', note: 'Passager identifié' } })).json;
+  assert.equal(m.statut, 'CONFIRMEE'); assert.equal(m.notes.length, 1);
+  // pas de doublon pour la même étiquette inconnue
+  await call('POST', '/api/agent/scans', { token: AG, body: { code: 'AC123456', pointId: ARR } });
+  assert.equal((await call('GET', '/api/admin/fraudes', { token: AD })).json.filter((x) => x.code === 'AC123456').length, 1);
 });

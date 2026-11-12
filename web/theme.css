@@ -156,3 +156,10 @@ body.mobile .principal { animation: none; }
 .tableau-departs td, .tableau-departs th { white-space: nowrap; }
 .radar-recherche select.input { width: auto; flex: 0 0 auto; margin-top: 0; }
 .radar-recherche .btn { white-space: nowrap; }
+
+/* ---------- Alertes fraude (mbindiri) ---------- */
+.bandeau-fraude { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; padding: 16px 20px; border-radius: 16px; text-decoration: none; color: #fff; background: linear-gradient(120deg, #8f1411, #d9302c); box-shadow: 0 14px 34px -12px rgba(217,48,44,.7); }
+.bandeau-fraude > span.clignote { font-size: 30px; animation: clignote 1.1s infinite; }
+.bandeau-fraude b { display: block; font-size: 16px; } .bandeau-fraude div span { font-size: 13px; color: #ffd9d6; }
+.bandeau-fraude div { flex: 1; } .bandeau-fraude em { font-style: normal; font-weight: 700; background: rgba(255,255,255,.18); padding: 8px 14px; border-radius: 10px; }
+.fraude-crit { border-left: 5px solid var(--rouge); background: linear-gradient(90deg, #fff5f4, #fff 40%); }

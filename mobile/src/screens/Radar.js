@@ -9,7 +9,7 @@ import { Carte, H, T, Muted, Champ, Bouton, Erreur, Pill } from '../ui';
 const PHASE = { AU_SOL: C.gris, EN_VOL: C.vert, ARRIVE: C.bleu2, ANNULE: C.rouge };
 
 // Radar des vols en temps réel. `mesBagages` : [{numeroVol, depart, arrivee, nb}] → pastille 🧳 qui voyage avec l'avion.
-export default function Radar({ jeton, personnel = false, mesBagages = [], volInitial = null, passager = null }) {
+export default function Radar({ jeton, personnel = false, mesBagages = [], volInitial = null, passager = null, numeroVol = null }) {
   const [vols, setVols] = useState([]);
   const [q, setQ] = useState('');
   const [choisi, setChoisi] = useState(volInitial);
@@ -25,31 +25,45 @@ export default function Radar({ jeton, personnel = false, mesBagages = [], volIn
     try { setVols((await api('GET', `/api/radar${q.trim() ? `?compagnie=${encodeURIComponent(q.trim())}` : ''}`)).vols); setErr(''); }
     catch (e) { setErr(e.message); }
   }, [q]);
-  useEffect(() => { charger(); const i = setInterval(charger, 15000); return () => clearInterval(i); }, [charger]);
+  useEffect(() => { cadrer.current = true; charger(); const i = setInterval(charger, 15000); return () => clearInterval(i); }, [charger]);
   useEffect(() => { const i = setInterval(() => setTick((n) => n + 1), suivre ? 500 : 1000); return () => clearInterval(i); }, [suivre]);
   useEffect(() => { if (!choisi) { setFiche(null); return; } const v = vols.find((x) => x.id === choisi); setFiche(v ?? null); }, [choisi, vols]);
 
+  const auto = useRef(false);
+  useEffect(() => { // le passager arrive directement sur SON vol : trajet cadré, et suivi en direct s'il est en vol
+    if (auto.current || !numeroVol || !vols.length) return;
+    const v = vols.find((x) => x.numero === numeroVol && x.position);
+    if (!v) return;
+    auto.current = true;
+    cadrer.current = v.id; setChoisi(v.id);
+    const e = etatLocal(v, Date.now());
+    if (e?.phase === 'EN_VOL') setTimeout(() => setSuivre(true), 600);
+  }, [vols, numeroVol]);
+
   const maintenant = () => (acc ? accDebut.current.s + (Date.now() - accDebut.current.r) * 60 : Date.now());
-  const basculerAcc = () => { accDebut.current = { r: Date.now(), s: Date.now() }; setAcc((a) => !a); };
+  const basculerAcc = () => { accDebut.current = { r: Date.now(), s: maintenant() }; setAcc((a) => !a); };
 
   const sacs = (v) => mesBagages.filter((b) => b.numeroVol === v.numero && b.depart === v.depart && b.arrivee === v.arrivee).reduce((n, b) => n + b.nb, 0);
 
   const donneesCarte = useMemo(() => {
-    const t = maintenant();
-    const avions = vols.map((v) => {
-      const e = etatLocal(v, t);
-      if (!e) return null;
-      const n = sacs(v);
-      return { id: v.id, lat: e.pos[0], lon: e.pos[1], cap: e.cap, sel: v.id === choisi, bag: n || null };
-    }).filter(Boolean);
-    const v = vols.find((x) => x.id === choisi);
-    const out = { avions, trace: v?.trace?.length === 2 ? v.trace.map((p) => [p.lat, p.lon]) : null, suivre: suivre ? choisi : null, cadrer: cadrer.current };
-    cadrer.current = false;
+    // La carte reçoit les horaires et calcule elle-même la position de chaque avion à chaque image (mouvement continu).
+    const lst = vols.filter((v) => v.position).map((v) => ({
+      id: v.id, num: v.numero, dc: v.depart, ac: v.arrivee,
+      A: [v.trace[0].lat, v.trace[0].lon], B: [v.trace[1].lat, v.trace[1].lon],
+      dep: v.departTs ? Date.parse(v.departTs) : null, arr: v.arriveeTs ? Date.parse(v.arriveeTs) : null,
+      fixe: !v.departTs || !v.arriveeTs || v.phase === 'ANNULE' || v.statut === 'ATTERRI', f: v.progression, phase: v.phase, bag: sacs(v) || null,
+    }));
+    const out = { vols: lst, sel: choisi, suivre: suivre ? choisi : null, cadrer: null, clock: { acc: acc ? 60 : 1, sim: maintenant(), reel: Date.now() } };
+    if (cadrer.current) {
+      const v = lst.find((x) => x.id === cadrer.current);
+      const pts = v ? [v.A, v.B] : lst.flatMap((x) => [x.A, x.B]);
+      if (pts.length) { out.cadrer = pts; cadrer.current = null; }
+    }
     return out;
     // eslint-disable-next-line
-  }, [vols, choisi, suivre, tick, acc]);
+  }, [vols, choisi, suivre, acc, mesBagages]);
 
-  const choisir = (id) => { cadrer.current = true; setChoisi(id); setSuivre(false); };
+  const choisir = (id) => { cadrer.current = id; setChoisi(id); setSuivre(false); };
   const v = fiche;
   const e = v ? etatLocal(v, maintenant()) : null;
 
@@ -58,18 +72,18 @@ export default function Radar({ jeton, personnel = false, mesBagages = [], volIn
       <View style={{ padding: 10, backgroundColor: '#fff', flexDirection: 'row', gap: 8 }}>
         <TextInput value={q} onChangeText={setQ} onSubmitEditing={charger} returnKeyType="search" placeholder="Compagnie : Air Congo, Kenya Airways…"
           placeholderTextColor="#9aa5b1" style={{ flex: 1, borderWidth: 1, borderColor: C.bord, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: '#1d2733' }} />
-        {personnel ? <TouchableOpacity onPress={basculerAcc} style={{ justifyContent: 'center', paddingHorizontal: 10, borderRadius: 10, backgroundColor: acc ? C.orange : C.fond }}><Text style={{ fontWeight: '700', color: acc ? '#fff' : C.gris }}>×60</Text></TouchableOpacity> : null}
+        {personnel || vols.some((v) => /^DEMO/i.test(v.numero)) ? <TouchableOpacity onPress={basculerAcc} style={{ justifyContent: 'center', paddingHorizontal: 10, borderRadius: 10, backgroundColor: acc ? C.orange : C.fond }}><Text style={{ fontWeight: '700', color: acc ? '#fff' : C.gris }}>×60</Text></TouchableOpacity> : null}
       </View>
       {acc ? <Text style={{ backgroundColor: '#fff4e0', color: '#7a5200', fontSize: 12, padding: 6, textAlign: 'center' }}>Simulation accélérée ×60 pour la démonstration : positions fictives.</Text> : null}
       <Erreur>{err}</Erreur>
-      <View style={{ flex: 1.1 }}><CarteOSM donnees={donneesCarte} onVol={choisir} style={{ flex: 1 }} /></View>
+      <View style={{ flex: 1.1 }}><CarteOSM donnees={donneesCarte} onVol={choisir} onDrag={() => setSuivre(false)} style={{ flex: 1 }} /></View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12 }}>
         {v ? <FicheVol v={v} e={e} jeton={jeton} suivre={suivre} setSuivre={setSuivre} fermer={() => { setChoisi(null); setSuivre(false); }} nb={sacs(v)} recharger={charger} personnel={personnel} passager={passager} maintenant={maintenant} /> : null}
         <H>{vols.length} vol(s) · touchez un avion ou un vol</H>
         {vols.map((x) => (
           <TouchableOpacity key={x.id} onPress={() => choisir(x.id)}>
             <Carte style={{ padding: 10, borderColor: x.id === choisi ? C.bleu2 : C.bord }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T style={{ fontWeight: '700' }}>{x.numero} · {x.depart}→{x.arrivee}</T><Pill texte={x.libellePhase} couleur={PHASE[x.phase] ?? C.gris} /></View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T style={{ fontWeight: '700' }}>{x.numero} · {x.depart} ✈️ {x.arrivee}</T><Pill texte={x.libellePhase} couleur={PHASE[x.phase] ?? C.gris} /></View>
               <Muted>{x.compagnie ?? '—'} · {x.nbBagages} bagage(s) · {x.libreKg} kg libres</Muted>
             </Carte>
           </TouchableOpacity>))}
@@ -89,7 +103,7 @@ function FicheVol({ v, e, jeton, suivre, setSuivre, fermer, nb, recharger, perso
   const kmRestants = null;
   return (
     <Carte style={{ borderColor: C.bleu2 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><H>{v.numero} · {v.villeDepart} → {v.villeArrivee}</H><TouchableOpacity onPress={fermer}><Text style={{ color: C.gris }}>✕</Text></TouchableOpacity></View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><H>{v.numero} · {v.villeDepart} ✈️ {v.villeArrivee}</H><TouchableOpacity onPress={fermer}><Text style={{ color: C.gris }}>✕</Text></TouchableOpacity></View>
       <Muted>{v.compagnie ?? ''} · départ {v.heureDepart ?? '—'}</Muted>
       <View style={{ height: 8 }} />
       <Pill texte={(e ? { AU_SOL: 'Au sol', EN_VOL: 'En vol', ARRIVE: 'Arrivé' }[e.phase] : null) ?? v.libellePhase} couleur={PHASE[e?.phase ?? v.phase] ?? C.gris} />

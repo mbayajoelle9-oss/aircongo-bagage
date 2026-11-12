@@ -31,6 +31,7 @@ import { cleLecteurValide, traiterLectures } from './rfid.js';
 import { rechercherVols, importerVol, importerCompagnie, synchroniserVols, listerVols } from './vols.js';
 import { creerReservation, importerReservations, listerReservations } from './reservations.js';
 import { creerReclamation, suiviReclamation, listerReclamations, majReclamation } from './reclamations.js';
+import { listerFraudes, majFraude } from './fraudes.js';
 import { radarVols, ficheVol, chercherCompagnies, acheterEspace } from './radar.js';
 
 export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, fournisseurVols = null, cleLecteurRfid = null }) {
@@ -142,6 +143,8 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, f
     r('GET', '/api/admin/stats', async ({ headers }) => (await exiger(headers, ADMIN), stats(repo))),
     r('GET', '/api/admin/bagages', async ({ headers }) => (await exiger(headers, ADMIN), listeBagages(repo))),
     r('GET', '/api/admin/alertes', async ({ headers }) => (await exiger(headers, ADMIN), alertes(repo))),
+    r('GET', '/api/admin/fraudes', async ({ headers }) => (await exiger(headers, ADMIN), listerFraudes(repo))),
+    r('PATCH', '/api/admin/fraudes/:numero', async ({ params, body, headers }) => { const u = await exiger(headers, ADMIN); return majFraude(repo, params.numero, body ?? {}, u); }),
     r('GET', '/api/admin/litiges', async ({ headers }) => (await exiger(headers, ADMIN), litiges(repo))),
     r('PATCH', '/api/admin/litiges/:numero', async ({ params, body, headers }) => {
       await exiger(headers, ADMIN);

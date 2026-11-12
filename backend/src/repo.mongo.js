@@ -26,7 +26,7 @@ const schemas = {
     opts,
   ),
   scans: new Schema(
-    { id: idChamp(), bagageId: { type: String, index: true }, code: String, etape: String, station: String, agent: String, source: String, saut: Boolean, ts: String, pointId: String, pointNom: String, lat: Number, lon: Number },
+    { id: idChamp(), bagageId: { type: String, index: true }, code: String, etape: String, station: String, agent: String, source: String, saut: Boolean, fraude: Boolean, ts: String, pointId: String, pointNom: String, lat: Number, lon: Number },
     opts,
   ),
   litiges: new Schema(
@@ -51,6 +51,7 @@ const schemas = {
     { id: idChamp(), code: { type: String, unique: true }, nom: String, station: String, etape: String, lat: Number, lon: Number, actif: Boolean, rfid: Boolean, positionDemo: Boolean },
     opts,
   ),
+  fraudes: new Schema({ id: idChamp(), numero: { type: String, unique: true }, code: { type: String, index: true }, type: String, libelleType: String, gravite: String, etape: String, station: String, pointNom: String, agent: String, manques: [String], inconnu: Boolean, passager: String, pnr: String, vol: String, trajet: String, statut: String, notes: [{ texte: String, agent: String, ts: String, _id: false }], ts: String }, opts),
   reclamations: new Schema({ id: idChamp(), numero: { type: String, unique: true }, nom: String, vol: String, date: String, reference: String, numeroBillet: String, description: String, codeEtiquette: String, telephone: String, classe: String, verifiee: Boolean, priorite: String, statut: String, notes: [{ texte: String, public: Boolean, agent: String, ts: String, _id: false }], ts: String }, opts),
   aeroports: new Schema({ id: idChamp(), code: { type: String, unique: true }, nom: String, lat: Number, lon: Number }, opts),
   ventesEspace: new Schema(

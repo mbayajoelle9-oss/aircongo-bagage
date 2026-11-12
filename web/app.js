@@ -24,6 +24,7 @@ const PAGES = [
   { id: 'scanner', titre: 'Scan en escale', ico: 'scan', admin: false, groupe: 'Opérations' },
   { id: 'capacite', titre: 'Soute & revente', ico: 'dollar', admin: true, groupe: 'Commercial' },
   { id: 'reservations', titre: 'Manifeste passagers', ico: 'equipe', admin: false, groupe: 'Commercial' },
+  { id: 'fraudes', titre: 'Alertes fraude', ico: 'alerte', admin: true, groupe: 'Service client' },
   { id: 'reclamations', titre: 'Réclamations', ico: 'alerte', admin: false, groupe: 'Service client' },
   { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true, groupe: 'Service client' },
   { id: 'carte', titre: 'Escales & points de scan', ico: 'epingle', admin: true, groupe: 'Administration' },
@@ -58,7 +59,7 @@ async function naviguer() {
   menu(page.id);
   vue.innerHTML = '<div class="chargement">Chargement…</div>';
   try {
-    await ({ radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, reservations: vueReservations, reclamations: vueReclamations, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
+    await ({ fraudes: vueFraudes, radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, reservations: vueReservations, reclamations: vueReclamations, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
   } catch (e) {
     vue.innerHTML = `<div class="carte"><div class="erreur" style="margin:0">${esc(e.message)}</div></div>`;
   }
@@ -77,6 +78,7 @@ async function vueDashboard() {
       <div><h1>${h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'}, ${esc((moi.nom ?? '').split(' ')[0])}</h1>
       <p><span class="live-point"></span>Centre de contrôle des opérations bagages · flotte, escales et soute en temps réel.</p></div>
       <div class="occ-heure"><b id="horloge">--:--:--</b><span>Heure de Kinshasa · <span id="maj">…</span></span></div></section>
+    <div id="bandeauFraude"></div>
     <div class="kpis occ" id="kpis"></div>
     <div class="occ-grille"><div>
       <section class="tableau-departs"><h2>Tableau des départs <small id="cptVols"></small></h2><div class="tableau"><table><thead><tr><th>Vol</th><th>Trajet</th><th>Départ</th><th>Statut</th><th>Progression</th><th>Soute</th><th>Bag.</th></tr></thead><tbody id="departs"></tbody></table></div></section>
@@ -100,12 +102,14 @@ async function vueDashboard() {
     $('kpis').innerHTML = [
       kpi('avion', 'Avions en vol', nb('EN_VOL'), 'vert', `${nb('AU_SOL')} au sol · ${vols.length} au programme`),
       kpi('bagage', 'Bagages suivis', s.totalBagages, '', `${circulation} en circulation`),
-      kpi('alerte', 'Alertes', s.alertes, s.alertes ? 'rouge' : 'vert', s.alertes ? 'bagages sans mouvement' : 'tout est fluide'),
+      kpi('alerte', 'Alertes fraude', s.fraudesOuvertes, s.fraudesOuvertes ? 'rouge' : 'vert', s.fraudesOuvertes ? 'mbindiri suspecté' : 'aucun cas ouvert'),
+      kpi('alerte', 'Bagages bloqués', s.alertes, s.alertes ? 'rouge' : 'vert', s.alertes ? 'bagages sans mouvement' : 'tout est fluide'),
       kpi('alerte', 'Litiges ouverts', s.litigesOuverts, s.litigesOuverts ? 'jaune' : 'vert'),
       kpi('dollar', 'Recettes', usd(s.recettesExcedentUsd + fret), 'vert', `excédents ${usd(s.recettesExcedentUsd)} · fret ${usd(fret)}`),
       kpi('grille', 'Soute à revendre', `${Math.round(libre)} kg`, libre > 0 ? 'jaune' : '', `potentiel ${usd(potentiel)}`),
     ].join('');
 
+    $('bandeauFraude').innerHTML = s.fraudesOuvertes ? `<a class="bandeau-fraude" href="#/fraudes"><span class="clignote">⚠</span><div><b>${s.fraudesOuvertes} alerte(s) fraude ouverte(s) — mbindiri suspecté</b><span>Bagage retrouvé sans enregistrement ni chargement, ou étiquette inconnue. Cliquez pour enquêter.</span></div><em>Voir →</em></a>` : '';
     $('cptVols').textContent = `${vols.length} vol(s)`;
     $('departs').innerHTML = vols.length ? vols.slice(0, 10).map((v) => { const [l, c] = PHASES[v.phase] ?? [v.libellePhase, 'gris'];
       return `<tr><td class="num">${esc(v.numero)}</td><td>${esc(v.depart)} → ${esc(v.arrivee)}</td><td>${v.departTs ? heure(v.departTs) : esc(v.heureDepart ?? '—')}</td><td><span class="pill ${c}">${esc(l)}</span></td>
@@ -312,7 +316,7 @@ async function vueCapacite() {
 // ============================================================
 // Passagers : saisie d'une réservation et import de la liste fournie par Air Congo
 // ============================================================
-const MODELE_CSV = 'pnr;nom;classe;vol;date;telephone;canal\nACG501;Mbemba Joseph;ECO;DEMO-205;;0812345678;SMS\nACV502;Kabila Sarah;VIP;DEMO-205;;0899999999;WHATSAPP\n';
+const MODELE_CSV = 'pnr;nom;classe;vol;date;telephone;canal\nACG501;Mbemba Joseph;ECO;DEMO-205;;0812345678;SMS\nACV502;Mutombo Sarah;VIP;DEMO-205;;0899999999;WHATSAPP\n';
 async function vueReservations() {
   const vols = EST_ADMIN ? (await api('GET', '/api/admin/vols')).vols : [];
   vue.innerHTML = entete('Manifeste passagers', 'Créez une réservation ou importez la liste des passagers d’un vol (fichier CSV)') +
@@ -375,6 +379,31 @@ async function vueReclamations() {
       await api('PATCH', `/api/agent/reclamations/${encodeURIComponent(c.dataset.n)}`, { statut: c.querySelector('.st').value || undefined, note: c.querySelector('.nt').value, public: c.querySelector('.pb').checked });
       toast('Réclamation mise à jour'); vueReclamations();
     } catch (e) { toast(e.message, 'err'); }
+  }));
+}
+
+// ============================================================
+// Alertes fraude : le « mbindiri » (bagage glissé en soute sans enregistrement ni chargement)
+// ============================================================
+const STATUTS_FRAUDE = { OUVERTE: 'Ouverte', EN_ENQUETE: 'En enquête', CONFIRMEE: 'Fraude confirmée', FAUSSE_ALERTE: 'Fausse alerte' };
+async function vueFraudes() {
+  const l = await api('GET', '/api/admin/fraudes');
+  const ouv = l.filter((f) => f.statut === 'OUVERTE' || f.statut === 'EN_ENQUETE').length;
+  const NOMS = { ENREGISTRE: 'enregistrement', CHARGE: 'chargement' };
+  vue.innerHTML = entete('Alertes fraude', `${ouv} à traiter · bagages retrouvés sans enregistrement ni chargement, étiquettes inconnues`) +
+    `<div class="carte" style="border-left:5px solid var(--rouge)"><b>Comment fonctionne la détection ?</b><p class="muted petit" style="margin:6px 0 0">Chaque scan est contrôlé. Si un bagage apparaît au chargement, en transit, à l’arrivée ou à la remise alors qu’il n’a jamais été <b>enregistré</b> et/ou <b>chargé</b>, ou si son étiquette est inconnue du système, une alerte critique est créée et l’agent est averti à l’instant.</p></div>` +
+    (l.length ? l.map((f) => `<div class="carte fraude-carte ${f.gravite === 'CRITIQUE' && (f.statut === 'OUVERTE' || f.statut === 'EN_ENQUETE') ? 'fraude-crit' : ''}" data-n="${esc(f.numero)}">
+      <div class="rang" style="justify-content:space-between;align-items:center"><div><b class="mono">${esc(f.numero)}</b> <span class="pill ${f.gravite === 'CRITIQUE' ? 'rouge' : f.gravite === 'ELEVEE' ? 'jaune' : 'gris'}">${f.gravite === 'CRITIQUE' ? 'Critique' : f.gravite === 'ELEVEE' ? 'Élevée' : 'Moyenne'}</span></div><span><span class="pill ${f.statut === 'OUVERTE' ? 'rouge' : f.statut === 'EN_ENQUETE' ? 'jaune' : f.statut === 'CONFIRMEE' ? 'vip' : 'gris'}">${esc(STATUTS_FRAUDE[f.statut])}</span> <span class="muted petit">${dateHeure(f.ts)}</span></span></div>
+      <h3 style="margin:8px 0 4px">${esc(f.libelleType)}</h3>
+      <div>Étiquette <b class="mono">${esc(f.code)}</b>${f.inconnu ? ' <span class="pill rouge">inconnue du système</span>' : ''} · scannée à <b>${esc(f.pointNom ?? f.station)}</b> (${esc(f.station)}) par ${esc(f.agent || '—')}</div>
+      ${f.passager ? `<div class="petit" style="margin-top:4px">Passager de l’étiquette : <b>${esc(f.passager)}</b> · PNR <span class="mono">${esc(f.pnr)}</span> · vol ${esc(f.vol ?? '—')} ${esc(f.trajet ?? '')}</div>` : ''}
+      ${(f.manques ?? []).length ? `<div class="petit" style="margin-top:4px;color:#9b1f1c">Étapes jamais franchies : ${f.manques.map((m) => NOMS[m] ?? m).join(' et ')}</div>` : ''}
+      ${(f.notes ?? []).map((n) => `<div class="petit" style="margin-top:4px">↳ ${esc(n.texte)} <span class="muted">(${esc(n.agent)} · ${dateHeure(n.ts)})</span></div>`).join('')}
+      <div class="rang" style="margin-top:10px;align-items:end"><select class="input st"><option value="">Statut inchangé</option><option value="EN_ENQUETE">En enquête</option><option value="CONFIRMEE">Fraude confirmée</option><option value="FAUSSE_ALERTE">Fausse alerte</option></select>
+      <input class="input nt" placeholder="Note d’enquête" maxlength="500"><button class="btn ok">Enregistrer</button></div></div>`).join('') : '<div class="carte"><div class="ok-ligne">Aucune alerte fraude. Tous les bagages en circuit sont tracés.</div></div>');
+  vue.querySelectorAll('.fraude-carte').forEach((c) => (c.querySelector('.ok').onclick = async () => {
+    try { await api('PATCH', `/api/admin/fraudes/${encodeURIComponent(c.dataset.n)}`, { statut: c.querySelector('.st').value || undefined, note: c.querySelector('.nt').value }); toast('Alerte mise à jour'); vueFraudes(); }
+    catch (e) { toast(e.message, 'err'); }
   }));
 }
 

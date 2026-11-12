@@ -1,5 +1,6 @@
 // Logique métier. Indépendante d'Express et de MongoDB : elle ne parle qu'au « dépôt » (repo).
 import { CONFIG, ETAPES, LIBELLES, STATIONS, POINTS_PAR_DEFAUT } from './config.js';
+import { manquesObligatoires, signalerFraude, fraudesOuvertes } from './fraudes.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -160,7 +161,6 @@ async function alerterPassager(repo, reservation, bagage, scan) {
 }
 
 export async function enregistrerScan(repo, { code, etape, station, agent, poidsKg, source, ts, pointId }) {
-  const bagage = await trouverBagage(repo, code);
   const point = pointId ? await trouverPoint(repo, pointId) : null;
   if (point && !point.actif) throw new HttpError(409, 'Ce point de scan est désactivé');
   if (point) { etape = point.etape; station = point.station; } // le point de scan décide de l'étape et de la station
@@ -168,8 +168,14 @@ export async function enregistrerScan(repo, { code, etape, station, agent, poids
   const idx = ETAPES.indexOf(e);
   if (idx < 0) throw new HttpError(400, `Étape invalide. Valeurs : ${ETAPES.join(', ')}`);
   if (!station || String(station).length > 10) throw new HttpError(400, 'Station requise');
+  const bagage = await repo.findOne('bagages', { code: String(code ?? '').toUpperCase().trim() });
+  if (!bagage) {
+    // Étiquette inconnue : ni enregistrée ni tracée. Si elle apparaît en circuit, c'est un cas de « mbindiri » : on alerte.
+    const f = await signalerFraude(repo, { code: String(code ?? '').toUpperCase().trim().slice(0, 30), etape: e, station, pointNom: point?.nom, agent, inconnu: true });
+    throw new HttpError(404, `ALERTE FRAUDE ${f.numero} : étiquette inconnue, aucun enregistrement. ${e === 'CHARGE' ? 'Ne chargez pas ce bagage.' : 'Isolez ce bagage.'} L’alerte est transmise.`);
+  }
 
-  const { statut, dernierScan } = await statutBagage(repo, bagage);
+  const { statut, dernierScan, scans: historique } = await statutBagage(repo, bagage);
   const dernierIdx = ETAPES.indexOf(statut); // -1 si PRE_ENREGISTRE
   // Plusieurs points peuvent partager la même étape (ex. comptoir puis tri) : on refuse seulement un retour
   // en arrière ou un second scan au même point.
@@ -186,6 +192,8 @@ export async function enregistrerScan(repo, { code, etape, station, agent, poids
     bagageMaj = await repo.update('bagages', bagage.id, { poidsKg: round2(p), poidsReel: true });
   }
 
+  // Détection du mbindiri : étapes obligatoires (enregistrement, chargement) jamais franchies avant cette étape ?
+  const manques = manquesObligatoires(new Set(historique.map((x) => x.etape)), e);
   const scan = await repo.insert('scans', {
     bagageId: bagage.id,
     code: bagage.code,
@@ -198,16 +206,24 @@ export async function enregistrerScan(repo, { code, etape, station, agent, poids
     agent: String(agent || 'agent').slice(0, 60),
     source: source === 'RFID' || (point?.rfid && bagage.niveau === 'VIP') ? 'RFID' : 'SCAN',
     saut,
+    fraude: manques.length > 0,
     ts: ts || new Date().toISOString(),
   });
 
   const reservation = await repo.findOne('reservations', { id: bagage.reservationId });
   await alerterPassager(repo, reservation, bagage, scan);
+  let fraude = null;
+  if (manques.length) {
+    const vol = reservation?.volId ? await repo.findOne('vols', { id: reservation.volId }) : null;
+    fraude = await signalerFraude(repo, { code: bagage.code, etape: e, station, pointNom: point?.nom, agent, manques, bagage, reservation, vol, ts: scan.ts });
+  }
+  const dit = (m) => (m.length === 2 ? 'ni enregistré ni chargé' : m[0] === 'ENREGISTRE' ? 'jamais enregistré ni pesé' : 'jamais chargé en soute');
   return {
     scan,
     bagage: await vueBagage(repo, bagageMaj),
     excedent: await calculExcedent(repo, reservation),
-    avertissement: saut ? 'Une étape intermédiaire a été sautée' : null,
+    fraude: fraude ? { numero: fraude.numero, type: fraude.type, gravite: fraude.gravite } : null,
+    avertissement: fraude ? `ALERTE FRAUDE ${fraude.numero} : ce bagage est ${dit(manques)}. Isolez-le et prévenez le superviseur.` : saut ? 'Une étape intermédiaire a été sautée' : null,
   };
 }
 
@@ -384,6 +400,7 @@ export async function stats(repo, maintenant = Date.now()) {
     vip: liste.filter((b) => b.niveau === 'VIP').length,
     parStatut,
     alertes: alertesDepuis(liste, maintenant).length,
+    fraudesOuvertes: await fraudesOuvertes(repo),
     litigesOuverts: litiges.filter((l) => l.statut !== 'RESOLU').length,
     recettesExcedentUsd: round2(paiements.reduce((s, p) => s + p.montantUsd, 0)),
   };
@@ -396,7 +413,7 @@ export async function litiges(repo) {
 // ---- Données de démonstration (fictives) ----
 export async function chargerDemo(repo) {
   await peuplerPoints(repo);
-  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements', 'notifications', 'ventesEspace']); // les comptes utilisateurs sont conservés
+  await repo.reset(['vols', 'reservations', 'bagages', 'scans', 'litiges', 'paiements', 'notifications', 'ventesEspace', 'fraudes']); // les comptes utilisateurs sont conservés
   // Horaires relatifs à « maintenant » pour que la démo montre toujours un avion en vol et des avions au sol.
   const dans = (min) => new Date(Date.now() + min * 60000).toISOString();
   const jour = new Date().toISOString().slice(0, 10);
@@ -405,7 +422,7 @@ export async function chargerDemo(repo) {
   await repo.insert('vols', { numero: 'DEMO-310', compagnie: 'Air Congo', date: jour, depart: 'FBM', arrivee: 'FIH', heureDepart: '15:00', departTs: dans(300), arriveeTs: dans(420), capaciteKg: 120 });
   await repo.insert('vols', { numero: 'DEMO-420', compagnie: 'Congo Airways', date: jour, depart: 'FIH', arrivee: 'FKI', heureDepart: '10:00', departTs: dans(-15), arriveeTs: dans(100), capaciteKg: 90 });
   await repo.insert('reservations', { pnr: 'ACG123', nom: 'Mbemba Joseph', classe: 'ECO', volId: vol1.id, telephone: '+243 000 000 001' });
-  await repo.insert('reservations', { pnr: 'ACV777', nom: 'Kabila Sarah', classe: 'VIP', volId: vol1.id, telephone: '+243 000 000 002', canalAlerte: 'WHATSAPP' });
+  await repo.insert('reservations', { pnr: 'ACV777', nom: 'Mutombo Sarah', classe: 'VIP', volId: vol1.id, telephone: '+243 000 000 002', canalAlerte: 'WHATSAPP' });
   await repo.insert('reservations', { pnr: 'ACB456', nom: 'Tshimanga Patrick', classe: 'BUSINESS', volId: vol2.id, telephone: '+243 000 000 003' });
 
   const m1 = await creerBagage(repo, 'ACG123', { poidsKg: 18 });
@@ -415,6 +432,8 @@ export async function chargerDemo(repo) {
   await creerBagage(repo, 'ACB456', { poidsKg: 20 });
 
   const il = (min) => new Date(Date.now() - min * 60000).toISOString();
+  // Cas de démonstration du « mbindiri » : une étiquette inconnue du système retrouvée au tapis d'arrivée de Lubumbashi.
+  await signalerFraude(repo, { code: 'AC555555', etape: 'ARRIVE', station: 'FBM', pointNom: 'Tapis bagages Lubumbashi', agent: 'Agent FBM', inconnu: true, ts: il(20) });
   const pt = async (code) => (await repo.findOne('points', { code })).id;
   const [ENR, TRI, CHG] = [await pt('FIH-ENR'), await pt('FIH-TRI'), await pt('FIH-CHG')];
   await enregistrerScan(repo, { code: m1.code, pointId: ENR, agent: 'Agent A', poidsKg: 18.4, ts: il(55) });

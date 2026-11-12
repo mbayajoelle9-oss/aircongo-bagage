@@ -24,3 +24,10 @@ export function etatLocal(v, t) {
   const pos = interp(v.trace[0], v.trace[1], f);
   return { phase: t < dep ? 'AU_SOL' : t >= arr ? 'ARRIVE' : 'EN_VOL', f, pos, cap: cap(pos, interp(v.trace[0], v.trace[1], Math.min(1, f + 0.01))) };
 }
+
+// Points du grand cercle entre les fractions f0 et f1 (trajectoire courbe réelle).
+export function arc(a, b, f0 = 0, f1 = 1) {
+  const n = Math.max(2, Math.ceil(70 * (f1 - f0)) + 1), out = [];
+  for (let i = 0; i <= n; i++) out.push(interp(a, b, f0 + ((f1 - f0) * i) / n));
+  return out;
+}

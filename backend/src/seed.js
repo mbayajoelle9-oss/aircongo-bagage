@@ -10,5 +10,5 @@ if (!process.env.MONGODB_URI) {
 }
 const repo = await connecterMongo(process.env.MONGODB_URI);
 await chargerDemo(repo);
-console.log('Données de démonstration chargées : ACG123 / Mbemba, ACV777 / Kabila (VIP), ACB456 / Tshimanga');
+console.log('Données de démonstration chargées : ACG123 / Mbemba, ACV777 / Mutombo (VIP), ACB456 / Tshimanga');
 await mongoose.disconnect();

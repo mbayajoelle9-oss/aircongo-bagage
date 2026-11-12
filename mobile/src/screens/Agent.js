@@ -51,7 +51,8 @@ function Scanner({ jeton }) {
     setAtt(true);
     try {
       const r = await api('POST', '/api/agent/scans', { code: c, pointId: point.id, poidsKg: point.etape === 'ENREGISTRE' && poids ? poids : undefined }, jeton);
-      setRes({ ok: true, texte: `${c} : ${r.bagage.libelle}`, avert: r.avertissement });
+      setRes({ ok: true, texte: `${c} : ${r.bagage.libelle}`, avert: r.avertissement, fraude: r.fraude });
+      if (r.fraude) Vibration.vibrate([0, 400, 150, 400, 150, 400]);
       setHist((h) => [{ ts: r.scan.ts, c, l: r.bagage.libelle, p: point.nom }, ...h].slice(0, 15));
       Vibration.vibrate(80);
       setCode(''); setPoids(''); setBag(null);
@@ -87,7 +88,7 @@ function Scanner({ jeton }) {
         <Champ label="Code bagage (saisie manuelle)" value={code} onChangeText={(v) => setCode(v.toUpperCase())} onSubmitEditing={() => chercher(code)} autoCapitalize="characters" />
         {point?.etape === 'ENREGISTRE' ? <Champ label="Poids lu sur la balance (kg)" value={poids} onChangeText={setPoids} keyboardType="numeric" /> : null}
         <Erreur>{err}</Erreur>
-        {res ? <View style={{ backgroundColor: res.avert ? '#fff4e0' : '#e9f7ef', padding: 10, borderRadius: 8, marginBottom: 8 }}><T style={{ fontWeight: '700' }}>✔ {res.texte}</T>{res.avert ? <Muted>{res.avert}</Muted> : null}</View> : null}
+        {res ? (res.fraude ? <View style={{ backgroundColor: '#c62828', padding: 12, borderRadius: 10, marginBottom: 8 }}><Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>⚠ ALERTE FRAUDE (mbindiri) {res.fraude.numero}</Text><Text style={{ color: '#ffe0dd', marginTop: 4 }}>{res.avert}</Text></View> : <View style={{ backgroundColor: res.avert ? '#fff4e0' : '#e9f7ef', padding: 10, borderRadius: 8, marginBottom: 8 }}><T style={{ fontWeight: '700' }}>✔ {res.texte}</T>{res.avert ? <Muted>{res.avert}</Muted> : null}</View>) : null}
         <Bouton titre="Valider le scan" onPress={() => valider()} chargement={att} couleur={C.vert} />
       </Carte>
       {bag?.bagage ? <Carte><H>{bag.bagage.code}</H>
