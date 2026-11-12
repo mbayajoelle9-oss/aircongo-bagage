@@ -18,7 +18,9 @@ async function charger(silencieux) {
   try {
     const nouvelles = await api('GET', url(), undefined, { auth: false });
     if (silencieux && donnees && JSON.stringify(nouvelles) === JSON.stringify(donnees)) return; // évite de recharger les cartes
+    const avant = new Map((donnees?.bagages ?? []).map((b) => [b.code, b.scans?.length ?? 0]));
     donnees = nouvelles;
+    if (silencieux) for (const b of nouvelles.bagages ?? []) if (avant.has(b.code) && (b.scans?.length ?? 0) > avant.get(b.code)) { const d = b.scans[b.scans.length - 1]; toast(`🧳 ${b.code} : ${d.pointNom ?? d.station ?? 'nouveau scan'}`); }
     await afficher();
   } catch (e) {
     if (silencieux) return;
@@ -61,7 +63,7 @@ async function afficher() {
     <p class="muted petit" style="margin:8px 0 0">Paiement simulé dans cette démonstration.</p></section>`
     : ex.excesKg > 0 ? '<section class="carte"><div class="excedent ok">Excédent réglé. Merci !</div></section>' : ''}
 
-  <div class="actions-pax"><a class="btn sec" href="#radarVue">✈ Mon vol sur le radar</a><a class="btn vert" href="#radarVue">Acheter de l’espace en soute</a></div>
+  <div class="actions-pax"><a class="btn sec" href="#radarVue">✈ Mon vol sur le radar</a><a class="btn vert" href="#radarVue">Acheter de l’espace en soute</a><a class="btn rouge" href="/reclamation.html?${new URLSearchParams({ pnr: d.pnr, nom: d.nom, vol: d.vol?.numero ?? '', date: d.vol?.date ?? '' })}">Réclamation bagage${d.classe === 'VIP' ? ' · prioritaire VIP' : ''}</a></div>
   <section class="carte"><h2 style="margin:0">Mes bagages <span class="live">● suivi en direct</span></h2>
     ${nbSans ? `<p class="muted petit" style="margin:10px 0 0">Votre étiquette est émise par Air Congo. Le bagage apparaît ici dès son premier passage en station.</p>` : ''}
     ${d.bagages.length ? d.bagages.map((b, i) => `

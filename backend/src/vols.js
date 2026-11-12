@@ -139,9 +139,10 @@ export async function importerVol(repo, fournisseur, { numero, date }) {
 export async function synchroniserVols(repo, fournisseur, { max = 20 } = {}) {
   exiger(fournisseur);
   const hier = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  const a_suivre = (await repo.find('vols')).filter((v) => v.source === 'API' && (v.date ?? '') >= hier).slice(0, max);
+  const importes = (await repo.find('vols')).filter((v) => v.source === 'API');
+  const a_suivre = importes.filter((v) => (v.date ?? '') >= hier).slice(0, max); // seuls les vols récents sont rafraîchis (quota)
   const resultat = { maj: 0, erreurs: [] };
-  await completerAeroports(repo, fournisseur, a_suivre); // vols importés avant l'ajout de la carte
+  await completerAeroports(repo, fournisseur, importes); // coordonnées des aéroports inconnus, même pour les vols passés
   for (const v of a_suivre) {
     try {
       const [frais] = await fournisseur.rechercher({ numero: v.numero, date: v.date });

@@ -96,3 +96,15 @@ Page « Capacité & revente » : par vol, capacité de soute (à régler : le d�
 ## Installer sur téléphone (sans APK)
 
 Le site est installable : ouvrir l'adresse Vercel dans Chrome (Android) → bouton vert « 📲 Installer l'application » ou menu ⋮ → « Installer l'application ». Une icône Air Congo apparaît sur l'écran d'accueil. L'APK à construire se trouve dans `mobile/` (voir `mobile/README.md`).
+
+## Réclamations bagages (sans file d'attente)
+
+- Page publique `/reclamation.html` (aussi depuis la page de connexion et depuis l'espace passager, formulaire pré-rempli) : nom, numéro de vol, date, référence (PNR), numéro de billet, étiquette (facultatif), téléphone, description.
+- La réservation (PNR + nom) est vérifiée automatiquement : un passager **VIP vérifié** obtient le statut **PRIORITAIRE** et ses dossiers passent en tête de liste. Dossier non vérifiable : enregistré, marqué « Non vérifiée » pour contrôle par un agent.
+- Le passager suit sa réclamation avec son numéro `RC-XXXXXX` et son nom et voit la réponse de l'agent. Page **Réclamations** pour l'administrateur et les agents (statut, note interne ou visible du passager).
+- L'APK n'a **pas besoin d'être reconstruit** : il affiche le site, donc une mise à jour de Vercel suffit.
+
+## Suivi « vidéo en direct »
+
+- Bouton « 🎥 Suivre en direct » : la caméra de la carte suit l'avion (~15 images/s) avec vitesse moyenne, distance restante, minutes avant l'arrivée. Côté passager, le suivi démarre tout seul si son avion est en vol.
+- Une notification (toast) apparaît à chaque nouveau scan d'un de ses bagages (vérification toutes les 8 s).

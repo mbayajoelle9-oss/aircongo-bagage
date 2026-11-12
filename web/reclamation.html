@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Réclamation bagage · Air Congo</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b2a4a">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/config.js"></script>
+</head>
+<body class="fond-clair">
+<header class="pax-barre"><div><img src="/logo.png" alt="Logo Air Congo"><b>Réclamation bagage</b><a href="/index.html" style="color:#fff;font-size:14px">Accueil</a></div></header>
+<main class="pax" style="max-width:640px;margin:0 auto;padding:16px 14px 60px" id="vue">
+  <section class="carte" id="formulaire">
+    <h2 style="margin:0 0 4px">Déclarer un bagage perdu, retardé ou endommagé</h2>
+    <p class="muted" style="margin:0 0 14px">Sans file d’attente, depuis votre téléphone. Les passagers <b>VIP</b> dont la réservation est vérifiée sont traités en priorité.</p>
+    <form id="fRec">
+      <label class="champ">Nom du passager *<input class="input" name="nom" required minlength="2" maxlength="80" autocomplete="name"></label>
+      <label class="champ">Numéro de vol *<input class="input" name="vol" required maxlength="12" placeholder="Ex. KQ554" style="text-transform:uppercase"></label>
+      <label class="champ">Date du vol *<input class="input" name="date" type="date" required></label>
+      <label class="champ">Référence de réservation (PNR) *<input class="input" name="reference" required minlength="4" maxlength="10" placeholder="Ex. ACV777" style="text-transform:uppercase"></label>
+      <label class="champ">Numéro de billet *<input class="input" name="numeroBillet" required inputmode="numeric" maxlength="20" placeholder="13 chiffres, ex. 071 2345678901"></label>
+      <label class="champ">Numéro d’étiquette du bagage<input class="input" name="codeEtiquette" maxlength="20" placeholder="Facultatif, sur le ticket collé au bagage" style="text-transform:uppercase"></label>
+      <label class="champ">Téléphone pour vous joindre<input class="input" name="telephone" type="tel" placeholder="0812345678"></label>
+      <label class="champ">Que s’est-il passé ?<textarea class="input" name="description" rows="3" maxlength="1000" placeholder="Bagage non reçu, valise abîmée, objet manquant…"></textarea></label>
+      <div class="erreur" id="erreur" hidden></div>
+      <button class="btn bloc" type="submit" id="envoyer" style="margin-top:14px">Envoyer ma réclamation</button>
+    </form>
+  </section>
+  <section class="carte" id="resultat" hidden></section>
+  <section class="carte" style="margin-top:14px">
+    <h2 style="margin:0 0 8px;font-size:16px">Suivre une réclamation déjà envoyée</h2>
+    <form id="fSuivi" class="rang" style="align-items:end"><label class="champ" style="flex:1">Numéro (RC-…)<input class="input" name="numero" required style="text-transform:uppercase"></label>
+      <label class="champ" style="flex:1">Votre nom<input class="input" name="nom" required></label><button class="btn" type="submit">Voir</button></form>
+    <div id="etat"></div>
+  </section>
+</main>
+<script type="module">
+import { api, esc, dateHeure } from '/common.js';
+const $ = (id) => document.getElementById(id);
+const q = new URLSearchParams(location.search), f = $('fRec');
+f.nom.value = q.get('nom') ?? ''; f.vol.value = q.get('vol') ?? ''; f.date.value = q.get('date') ?? ''; f.reference.value = q.get('pnr') ?? '';
+f.date.max = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+f.onsubmit = async (e) => {
+  e.preventDefault(); $('erreur').hidden = true; $('envoyer').disabled = true; $('envoyer').textContent = 'Envoi…';
+  try {
+    const r = await api('POST', '/api/reclamations', Object.fromEntries(new FormData(f)), { auth: false });
+    $('formulaire').hidden = true; $('resultat').hidden = false;
+    $('resultat').innerHTML = `<h2 style="margin:0 0 8px">Réclamation enregistrée</h2>
+      ${r.priorite === 'PRIORITAIRE' ? '<span class="pill jaune">★ Dossier VIP prioritaire</span>' : ''}
+      <div class="mono" style="font-size:26px;margin:10px 0">${esc(r.numero)}</div>
+      <p style="margin:0 0 10px">${esc(r.message)}</p>
+      <p class="muted petit">Gardez ce numéro : il permet de suivre l’avancement ci-dessous.</p>
+      <a class="btn sec" href="/index.html">Retour</a>`;
+    $('fSuivi').numero.value = r.numero; $('fSuivi').nom.value = f.nom.value;
+    scrollTo(0, 0);
+  } catch (err) { $('erreur').textContent = err.message; $('erreur').hidden = false; $('envoyer').disabled = false; $('envoyer').textContent = 'Envoyer ma réclamation'; }
+};
+$('fSuivi').onsubmit = async (e) => {
+  e.preventDefault();
+  const s = e.target;
+  try {
+    const r = await api('GET', `/api/reclamations/${encodeURIComponent(s.numero.value.trim())}?nom=${encodeURIComponent(s.nom.value)}`, undefined, { auth: false });
+    $('etat').innerHTML = `<div class="fiche-bagage" style="margin-top:12px"><b>${esc(r.numero)}</b> · vol ${esc(r.vol)} du ${esc(r.date)}<br><span class="pill ${r.statut === 'RESOLUE' ? 'vert' : r.statut === 'REJETEE' ? 'rouge' : 'bleu'}">${esc(r.libelleStatut)}</span>${r.priorite === 'PRIORITAIRE' ? ' <span class="pill jaune">★ VIP</span>' : ''}
+      <div class="muted petit" style="margin-top:6px">Déposée le ${esc(dateHeure(r.ts))}</div>${r.reponse ? `<p style="margin:8px 0 0"><b>Réponse d’Air Congo :</b> ${esc(r.reponse)}</p>` : ''}</div>`;
+  } catch (err) { $('etat').innerHTML = `<div class="erreur" style="margin-top:12px">${esc(err.message)}</div>`; }
+};
+</script>
+<script src="/pwa.js"></script>
+</body>
+</html>

@@ -51,6 +51,7 @@ const schemas = {
     { id: idChamp(), code: { type: String, unique: true }, nom: String, station: String, etape: String, lat: Number, lon: Number, actif: Boolean, rfid: Boolean, positionDemo: Boolean },
     opts,
   ),
+  reclamations: new Schema({ id: idChamp(), numero: { type: String, unique: true }, nom: String, vol: String, date: String, reference: String, numeroBillet: String, description: String, codeEtiquette: String, telephone: String, classe: String, verifiee: Boolean, priorite: String, statut: String, notes: [{ texte: String, public: Boolean, agent: String, ts: String, _id: false }], ts: String }, opts),
   aeroports: new Schema({ id: idChamp(), code: { type: String, unique: true }, nom: String, lat: Number, lon: Number }, opts),
   ventesEspace: new Schema(
     { id: idChamp(), volId: { type: String, index: true }, numeroVol: String, kg: Number, prixUsdKg: Number, montantUsd: Number, client: String, type: String, agent: String, telephone: String, operateur: String, reference: String, paiement: String, ts: String },

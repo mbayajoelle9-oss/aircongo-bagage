@@ -29,8 +29,14 @@ function etatLocal(v, t) {
   return { phase: t < dep ? 'AU_SOL' : t >= arr ? 'ARRIVE' : 'EN_VOL', f, pos: interp(v.trace[0], v.trace[1], f) };
 }
 
+function km(a, b) {
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
 export async function lancerRadar(racine, { personnel = false, filtre: filtreInitial = '', ouvrir = null, mesBagages = null } = {}) {
-  let vols = [], choisi = null, filtre = filtreInitial, acc = 1, accDebut = 0, accReel = 0, animation = null, sac = null;
+  let vols = [], choisi = null, filtre = filtreInitial, acc = 1, accDebut = 0, accReel = 0, animation = null, sac = null, suivi = false, dernier = 0, traceId = null;
   const trails = new Map();
   const maintenant = () => (acc > 1 ? accDebut + (Date.now() - accReel) * acc : Date.now());
   let config = {}, minuteur = null, premier = true;
@@ -82,6 +88,7 @@ export async function lancerRadar(racine, { personnel = false, filtre: filtreIni
       maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin',
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
     }).addTo(carte);
+    carte.on('dragstart', () => arreterSuivi());
     carte.on('click', () => carte.scrollWheelZoom.enable());
     carte.on('mouseout', () => carte.scrollWheelZoom.disable());
   }
@@ -103,7 +110,14 @@ export async function lancerRadar(racine, { personnel = false, filtre: filtreIni
     animer(true);
   }
 
-  // Appelée chaque seconde : déplace les avions, allonge le sillage, suit les bagages du passager.
+  function arreterSuivi() { suivi = false; }
+  function demarrerSuivi() {
+    const v = vols.find((x) => x.id === choisi), e = v && etatLocal(v, maintenant());
+    if (!carte || !e || e.phase !== 'EN_VOL') return toast('Le suivi en direct est possible pour un avion en vol', 'warn');
+    suivi = true; carte.setView(e.pos, Math.max(carte.getZoom(), 10), { animate: false }); animer(true);
+  }
+
+  // Appelée en boucle : déplace les avions, allonge le sillage, suit les bagages du passager.
   function animer(force = false) {
     if (!carte) return;
     const t = maintenant();
@@ -121,10 +135,21 @@ export async function lancerRadar(racine, { personnel = false, filtre: filtreIni
       } else if (trails.has(v.id)) { trails.get(v.id).remove(); trails.delete(v.id); }
       if (v.id === choisi) {
         const B = [v.trace[1].lat, v.trace[1].lon];
-        trace?.remove();
-        trace = L.polyline(e.phase === 'EN_VOL' ? [e.pos, B] : [A, B], { color: COULEURS[e.phase], weight: 3, dashArray: '8 8', opacity: 0.8 }).addTo(carte);
+        const pts = e.phase === 'EN_VOL' ? [e.pos, B] : [A, B];
+        if (trace && traceId === v.id && trace.setLatLngs) trace.setLatLngs(pts);
+        else { trace?.remove(); trace = L.polyline(pts, { color: COULEURS[e.phase], weight: 3, dashArray: '8 8', opacity: 0.8 }).addTo(carte); traceId = v.id; }
         const pct = racine.querySelector('#pct'); if (pct) pct.textContent = e.phase === 'EN_VOL' ? ` · ${Math.round(e.f * 100)} %` : '';
         const bar = racine.querySelector('#barreVol'); if (bar) bar.style.width = `${e.f * 100}%`;
+        const live = racine.querySelector('#live');
+        if (live) {
+          if (e.phase === 'EN_VOL' && v.departTs && v.arriveeTs) {
+            const total = km(v.trace[0], v.trace[1]), dur = (Date.parse(v.arriveeTs) - Date.parse(v.departTs)) / 3600000;
+            const reste = Math.max(0, total * (1 - e.f)), min = Math.max(0, Math.round((Date.parse(v.arriveeTs) - t) / 60000));
+            live.innerHTML = `<div><b>${Math.round(total / dur)}</b><span>km/h</span></div><div><b>${Math.round(reste)}</b><span>km restants</span></div><div><b>${min}</b><span>min avant l’arrivée</span></div><div><b>${e.pos[0].toFixed(3)}°</b><span>${e.pos[1].toFixed(3)}°</span></div>`;
+          } else live.innerHTML = '';
+        }
+        if (suivi && e.phase === 'EN_VOL') carte.setView(e.pos, carte.getZoom(), { animate: false });
+        const bs = racine.querySelector('#btnSuivi'); if (bs) bs.textContent = suivi ? '⏹ Quitter le suivi' : '🎥 Suivre en direct';
       }
       // Bagages du passager : une pastille qui voyage avec l'avion dès qu'ils sont chargés
       if (mesBagages && v.numero === ouvrir) {
@@ -183,10 +208,12 @@ export async function lancerRadar(racine, { personnel = false, filtre: filtreIni
       ${f.phase === 'EN_VOL' ? `<div class="capa-barre" style="margin-top:12px" title="Progression"><span class="b" id="barreVol" style="width:${f.progression * 100}%;background:var(--vert)"></span></div>` : ''}
       <div class="soute"><h3>Soute</h3><div class="capa-barre"><span class="b" style="width:${pctB}%"></span><span class="f" style="width:${pctF}%"></span></div>
         <div class="petit"><span class="capa-leg b" style="margin-left:0"></span>bagages ${kg(f.bagagesKg)} <span class="capa-leg f"></span>fret ${kg(f.fretKg)} <span class="capa-leg l"></span><b>libre ${kg(f.libreKg)}</b> sur ${kg(f.capaciteKg)}</div></div>
+      ${f.phase === 'EN_VOL' && f.position ? '<div id="live" class="live-compteurs"></div><button type="button" class="btn mini" id="btnSuivi" style="margin-top:8px">🎥 Suivre en direct</button>' : ''}
       ${f.position ? '' : '<div class="erreur" style="margin-top:10px">Cet avion n’est pas dessiné sur la carte : les coordonnées d’un de ses aéroports sont inconnues. Cliquez sur « Actualiser les vols » (page Vols) pour les chercher.</div>'}
       ${f.phase === 'AU_SOL' ? venteHtml(f) : ''}
       ${blocBagages(f, bagages)}`;
-    $('#retour').onclick = () => { choisi = null; majCarte(); animer(true); liste(); };
+    const bsuivi = $('#btnSuivi'); if (bsuivi) bsuivi.onclick = () => (suivi ? arreterSuivi() : demarrerSuivi());
+    $('#retour').onclick = () => { arreterSuivi(); choisi = null; majCarte(); animer(true); liste(); };
     if (ouvert) branchementAchat(f, formEnCours);
   }
 
@@ -242,12 +269,17 @@ export async function lancerRadar(racine, { personnel = false, filtre: filtreIni
   await initCarte();
   await charger();
   const cible = ouvrir && vols.find((v) => v.numero === ouvrir);
-  if (cible) await choisir(cible.id);
+  if (cible) { await choisir(cible.id); if (!personnel && cible.phase === 'EN_VOL') demarrerSuivi(); }
   if (personnel) $('#rAcc').onchange = (e) => {
     if (e.target.checked) { accDebut = Date.now(); accReel = Date.now(); acc = 60; } else acc = 1;
     $('#rAccNote').hidden = acc === 1; animer(true);
   };
-  animation = setInterval(() => animer(), 1000);
-  minuteur = setInterval(() => { if (!document.body.contains(racine)) { clearInterval(minuteur); clearInterval(animation); return; } if (!document.activeElement?.closest?.('#fAchat')) charger(); }, 10000);
-  return () => { clearInterval(minuteur); clearInterval(animation); };
+  const boucle = (ts) => {
+    if (!document.body.contains(racine)) return;
+    if (ts - dernier >= (suivi ? 66 : 1000)) { dernier = ts; animer(); } // ~15 images/s pendant le suivi, 1/s sinon
+    animation = requestAnimationFrame(boucle);
+  };
+  animation = requestAnimationFrame(boucle);
+  minuteur = setInterval(() => { if (!document.body.contains(racine)) { clearInterval(minuteur); return; } if (!document.activeElement?.closest?.('#fAchat')) charger(); }, 10000);
+  return () => { clearInterval(minuteur); cancelAnimationFrame(animation); };
 }

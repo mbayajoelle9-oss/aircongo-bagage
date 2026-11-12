@@ -400,9 +400,9 @@ export async function chargerDemo(repo) {
   // Horaires relatifs à « maintenant » pour que la démo montre toujours un avion en vol et des avions au sol.
   const dans = (min) => new Date(Date.now() + min * 60000).toISOString();
   const jour = new Date().toISOString().slice(0, 10);
-  const vol1 = await repo.insert('vols', { numero: 'DEMO-101', compagnie: 'Air Congo', date: jour, depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30', departTs: dans(-40), arriveeTs: dans(55), capaciteKg: 150 });
+  const vol1 = await repo.insert('vols', { numero: 'DEMO-101', compagnie: 'Air Congo', date: jour, depart: 'FIH', arrivee: 'FBM', heureDepart: '08:30', departTs: dans(-40), arriveeTs: dans(80), capaciteKg: 150 });
   const vol2 = await repo.insert('vols', { numero: 'DEMO-205', compagnie: 'Air Congo', date: jour, depart: 'FIH', arrivee: 'GOM', heureDepart: '11:15', departTs: dans(120), arriveeTs: dans(235), capaciteKg: 100 });
-  await repo.insert('vols', { numero: 'DEMO-310', compagnie: 'Air Congo', date: jour, depart: 'FBM', arrivee: 'FIH', heureDepart: '15:00', departTs: dans(300), arriveeTs: dans(395), capaciteKg: 120 });
+  await repo.insert('vols', { numero: 'DEMO-310', compagnie: 'Air Congo', date: jour, depart: 'FBM', arrivee: 'FIH', heureDepart: '15:00', departTs: dans(300), arriveeTs: dans(420), capaciteKg: 120 });
   await repo.insert('vols', { numero: 'DEMO-420', compagnie: 'Congo Airways', date: jour, depart: 'FIH', arrivee: 'FKI', heureDepart: '10:00', departTs: dans(-15), arriveeTs: dans(100), capaciteKg: 90 });
   await repo.insert('reservations', { pnr: 'ACG123', nom: 'Mbemba Joseph', classe: 'ECO', volId: vol1.id, telephone: '+243 000 000 001' });
   await repo.insert('reservations', { pnr: 'ACV777', nom: 'Kabila Sarah', classe: 'VIP', volId: vol1.id, telephone: '+243 000 000 002', canalAlerte: 'WHATSAPP' });

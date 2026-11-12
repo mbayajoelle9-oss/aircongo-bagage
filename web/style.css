@@ -305,3 +305,13 @@ body.mobile .menu .moi { position: fixed; top: 8px; right: 8px; margin: 0; paddi
 body.mobile .menu .moi > div { display: none; }
 body.mobile .menu .moi button { margin: 0; width: auto; padding: 6px 10px; background: var(--marine); font-size: 12px; }
 body.mobile .principal { padding: 14px 12px 90px; }
+
+.rec-vip { border-left: 5px solid #f6c21c; background: #fffbea; }
+.rec-carte .rang { display: flex; gap: 8px; flex-wrap: wrap; }
+.rec-carte .nt { flex: 1; min-width: 160px; }
+.btn.rouge { background: #d9302c; color: #fff; text-decoration: none; }
+
+.live-compteurs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+.live-compteurs div { background: var(--bleu-pale); border-radius: 10px; padding: 8px 4px; text-align: center; }
+.live-compteurs b { display: block; font-size: 17px; color: var(--marine); font-variant-numeric: tabular-nums; }
+.live-compteurs span { font-size: 10.5px; color: var(--gris); }

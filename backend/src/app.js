@@ -32,6 +32,7 @@ export function creerApp(repo, options) {
   );
   app.use('/api/suivi', rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false }));
   app.use('/api/radar', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+  app.use('/api/reclamations', rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { erreur: 'Trop de demandes, réessayez dans une minute' } }));
   app.use('/api/espace', rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false, message: { erreur: 'Trop de demandes, réessayez dans une minute' } }));
   app.use('/api/rfid', rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: true, legacyHeaders: false }));
   app.use('/api/agent', rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false }));

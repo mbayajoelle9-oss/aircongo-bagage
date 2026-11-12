@@ -418,7 +418,8 @@ test('import des vols par nom de compagnie', async () => {
 });
 
 test('vols importés : toujours sur le radar, même vol passé ou aéroport inconnu', async () => {
-  const vol = { flight_date: '2026-11-10', flight_status: 'scheduled', departure: { iata: 'YTS', scheduled: '2026-11-10T09:45:00+00:00' }, arrival: { iata: 'YAT', scheduled: '2026-11-10T11:00:00+00:00' }, airline: { name: 'Congo Airways' }, flight: { iata: '8Z600' } };
+  const avantHier = new Date(Date.now() - 2 * 86400000).toISOString();
+  const vol = { flight_date: avantHier.slice(0, 10), flight_status: 'scheduled', departure: { iata: 'YTS', scheduled: avantHier }, arrival: { iata: 'YAT', scheduled: new Date(Date.now() - 2 * 86400000 + 4000000).toISOString() }, airline: { name: 'Congo Airways' }, flight: { iata: '8Z600' } };
   let aeroports = [];
   const fetchImpl = async (u) => ({ json: async () => (String(u).includes('/airports') ? { data: aeroports } : { data: [vol] }) });
   const { call, AD } = await demarrer({ fournisseurVols: creerFournisseurAviationstack({ cle: 'CLE', fetchImpl }) });
@@ -468,4 +469,44 @@ test('radar : recherche par numéro de vol avec tiret', async () => {
   const { call } = await demarrer();
   assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'DEMO-205' } })).json.vols.length, 1);
   assert.equal((await call('GET', '/api/radar', { query: { compagnie: 'demo 205' } })).json.vols.length, 1);
+});
+
+test('réclamations bagages en ligne : VIP vérifié prioritaire, suivi, traitement par le personnel', async () => {
+  const { call, AG } = await demarrer();
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const base = { nom: 'Kabila Sarah', vol: 'demo-101', date: aujourdhui, reference: 'acv777', numeroBillet: '071-2345678901', description: 'Bagage non reçu', codeEtiquette: 'ac538480' };
+  const poster = (b) => call('POST', '/api/reclamations', { body: b });
+  assert.equal((await poster({ ...base, nom: '' })).status, 400);
+  assert.equal((await poster({ ...base, vol: '!' })).status, 400);
+  assert.equal((await poster({ ...base, date: '2020-01-01' })).status, 400);
+  assert.equal((await poster({ ...base, date: '2999-01-01' })).status, 400);
+  assert.equal((await poster({ ...base, reference: 'x' })).status, 400);
+  assert.equal((await poster({ ...base, numeroBillet: '12ab' })).status, 400);
+  const vip = await poster(base);
+  assert.equal(vip.status, 200);
+  assert.equal(vip.json.priorite, 'PRIORITAIRE');
+  assert.equal(vip.json.verifiee, true);
+  assert.match(vip.json.numero, /^RC-[0-9A-F]{6}$/);
+  // Passager économique vérifié : priorité normale ; inconnu : non vérifié
+  const eco = await poster({ ...base, nom: 'Tshimanga Patrick', reference: 'ACB456' });
+  assert.equal(eco.json.priorite, 'NORMALE'); assert.equal(eco.json.verifiee, true);
+  const inconnu = await poster({ ...base, nom: 'Quelqu Un', reference: 'ZZZZ99' });
+  assert.equal(inconnu.json.verifiee, false); assert.equal(inconnu.json.priorite, 'NORMALE');
+  // Un faux nom sur un PNR VIP ne donne pas la priorité
+  assert.equal((await poster({ ...base, nom: 'Autre Personne' })).json.priorite, 'NORMALE');
+  // Suivi par le passager
+  assert.equal((await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'kabila sarah' } })).json.libelleStatut, 'Nouvelle');
+  assert.equal((await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'Pirate' } })).status, 404);
+  // Personnel : la liste met le VIP en premier ; le public n'y a pas accès
+  assert.equal((await call('GET', '/api/agent/reclamations')).status, 401);
+  const liste = (await call('GET', '/api/agent/reclamations', { token: AG })).json;
+  assert.equal(liste.length, 4);
+  assert.equal(liste[0].numero, vip.json.numero);
+  assert.equal(liste[0].numeroBillet, '0712345678901');
+  const maj = await call('PATCH', `/api/agent/reclamations/${vip.json.numero}`, { token: AG, body: { statut: 'EN_COURS', note: 'Bagage localisé à Lubumbashi', public: true } });
+  assert.equal(maj.status, 200);
+  assert.equal((await call('PATCH', `/api/agent/reclamations/${vip.json.numero}`, { token: AG, body: { statut: 'BIDON' } })).status, 400);
+  const s = (await call('GET', `/api/reclamations/${vip.json.numero}`, { query: { nom: 'Kabila Sarah' } })).json;
+  assert.equal(s.statut, 'EN_COURS');
+  assert.equal(s.reponse, 'Bagage localisé à Lubumbashi');
 });

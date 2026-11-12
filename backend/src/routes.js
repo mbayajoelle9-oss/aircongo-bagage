@@ -30,6 +30,7 @@ import { capaciteVols, configurerVol, vendreEspace, listerVentes } from './capac
 import { cleLecteurValide, traiterLectures } from './rfid.js';
 import { rechercherVols, importerVol, importerCompagnie, synchroniserVols, listerVols } from './vols.js';
 import { creerReservation, importerReservations, listerReservations } from './reservations.js';
+import { creerReclamation, suiviReclamation, listerReclamations, majReclamation } from './reclamations.js';
 import { radarVols, ficheVol, chercherCompagnies, acheterEspace } from './radar.js';
 
 export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, fournisseurVols = null, cleLecteurRfid = null }) {
@@ -163,6 +164,11 @@ export function construireRoutes(repo, { jwtSecret, demoResetAutorise = false, f
     }),
 
     // ----- Radar des vols : public (compteurs et espace libre) ; détail des bagages réservé au personnel -----
+    // ----- Réclamations bagages en ligne (publiques : pas de file d'attente) -----
+    r('POST', '/api/reclamations', async ({ body }) => creerReclamation(repo, body ?? {})),
+    r('GET', '/api/reclamations/:numero', async ({ params, query }) => suiviReclamation(repo, params.numero, query.nom)),
+    r('GET', '/api/agent/reclamations', async ({ headers }) => { await exiger(headers, PERSONNEL); return listerReclamations(repo); }),
+    r('PATCH', '/api/agent/reclamations/:numero', async ({ params, body, headers }) => { const u = await exiger(headers, PERSONNEL); return majReclamation(repo, params.numero, body ?? {}, u); }),
     r('GET', '/api/radar', async ({ query }) => radarVols(repo, { compagnie: query.compagnie })),
     r('GET', '/api/radar/compagnies', async ({ query }) => chercherCompagnies(repo, query.q)),
     r('GET', '/api/radar/vols/:id', async ({ params }) => ficheVol(repo, params.id)),

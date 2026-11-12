@@ -22,6 +22,7 @@ const PAGES = [
   { id: 'capacite', titre: 'Capacité & revente', ico: 'dollar', admin: true },
   { id: 'vols', titre: 'Vols', ico: 'avion', admin: true },
   { id: 'reservations', titre: 'Passagers', ico: 'equipe', admin: false },
+  { id: 'reclamations', titre: 'Réclamations', ico: 'alerte', admin: false },
   { id: 'carte', titre: 'Carte & points', ico: 'epingle', admin: true },
   { id: 'bagages', titre: 'Bagages', ico: 'bagage', admin: true },
   { id: 'litiges', titre: 'Litiges', ico: 'alerte', admin: true },
@@ -52,7 +53,7 @@ async function naviguer() {
   menu(page.id);
   vue.innerHTML = '<div class="chargement">Chargement…</div>';
   try {
-    await ({ radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, reservations: vueReservations, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
+    await ({ radar: vueRadar, dashboard: vueDashboard, carte: vueCarte, vols: vueVols, capacite: vueCapacite, reservations: vueReservations, reclamations: vueReclamations, bagages: vueBagages, litiges: vueLitiges, utilisateurs: vueUtilisateurs, scanner: vueScanner })[page.id]();
   } catch (e) {
     vue.innerHTML = `<div class="carte"><div class="erreur" style="margin:0">${esc(e.message)}</div></div>`;
   }
@@ -334,6 +335,28 @@ async function vueReservations() {
     } catch (e) { toast(e.message, 'err'); }
     $('importer').disabled = false;
   };
+}
+
+// ============================================================
+// Réclamations bagages en ligne (VIP vérifiés en tête)
+// ============================================================
+async function vueReclamations() {
+  const l = await api('GET', '/api/agent/reclamations');
+  const ouvertes = l.filter((r) => r.statut === 'NOUVELLE' || r.statut === 'EN_COURS').length;
+  vue.innerHTML = entete('Réclamations', `${ouvertes} à traiter · les dossiers VIP vérifiés sont en tête de liste`) +
+    (l.length ? l.map((r) => `<div class="carte rec-carte ${r.priorite === 'PRIORITAIRE' && r.statut !== 'RESOLUE' ? 'rec-vip' : ''}" data-n="${esc(r.numero)}">
+      <div class="rang" style="justify-content:space-between;align-items:center"><b class="mono">${esc(r.numero)}</b><span>${r.priorite === 'PRIORITAIRE' ? '<span class="pill jaune">★ VIP</span> ' : ''}${r.verifiee ? '' : '<span class="pill rouge">Non vérifiée</span> '}<span class="pill ${r.statut === 'RESOLUE' ? 'vert' : r.statut === 'REJETEE' ? 'gris' : 'bleu'}">${esc(r.libelleStatut)}</span></span></div>
+      <div style="margin:6px 0"><b>${esc(r.nom)}</b> · vol ${esc(r.vol)} du ${esc(r.date)} · PNR <span class="mono">${esc(r.reference)}</span> · billet <span class="mono">${esc(r.numeroBillet)}</span>${r.codeEtiquette ? ` · étiquette <span class="mono">${esc(r.codeEtiquette)}</span>` : ''}${r.telephone ? ` · ${esc(r.telephone)}` : ''}</div>
+      ${r.description ? `<div class="muted">${esc(r.description)}</div>` : ''}
+      ${(r.notes ?? []).map((n) => `<div class="petit" style="margin-top:4px">↳ ${esc(n.texte)} <span class="muted">(${n.public ? 'visible du passager' : 'interne'} · ${esc(n.agent)})</span></div>`).join('')}
+      <div class="rang" style="margin-top:10px;align-items:end"><select class="input st"><option value="">Statut inchangé</option><option value="EN_COURS">En cours de traitement</option><option value="RESOLUE">Résolue</option><option value="REJETEE">Rejetée</option></select>
+      <input class="input nt" placeholder="Réponse ou note" maxlength="500"><label class="petit" style="white-space:nowrap"><input type="checkbox" class="pb" checked> visible du passager</label><button class="btn ok">Enregistrer</button></div></div>`).join('') : '<div class="carte"><p class="vide">Aucune réclamation.</p></div>');
+  vue.querySelectorAll('.rec-carte').forEach((c) => (c.querySelector('.ok').onclick = async () => {
+    try {
+      await api('PATCH', `/api/agent/reclamations/${encodeURIComponent(c.dataset.n)}`, { statut: c.querySelector('.st').value || undefined, note: c.querySelector('.nt').value, public: c.querySelector('.pb').checked });
+      toast('Réclamation mise à jour'); vueReclamations();
+    } catch (e) { toast(e.message, 'err'); }
+  }));
 }
 
 // ============================================================
